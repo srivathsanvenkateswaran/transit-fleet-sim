@@ -37,3 +37,16 @@ stop-order reversal in the source stop sequence; changing the shape-distance
 calculation would not repair that independent source-data anomaly. The loader
 still falls back to recomputed haversine cumulative distance if a future shape
 fails the distance gate.
+
+## Bundled Namma Metro topology
+
+- Source: OpenStreetMap route relations, fetched 2026-08-20
+- Discovery endpoint: https://overpass-api.de/api/interpreter
+- Relation data: https://api.openstreetmap.org/api/0.6/relation/{id}/full.json
+- Relations: Purple `7841331`, Green `7842287`, Yellow `19421944`
+- Stations: Purple 37, Green 32, Yellow 16
+- Attribution: © OpenStreetMap contributors
+
+The Green relation contains one disconnected track-way run, so its 31
+inter-station segments are explicitly marked `interpolated`; Purple and Yellow
+segments use stitched OSM ways.

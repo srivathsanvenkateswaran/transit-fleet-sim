@@ -17,3 +17,9 @@ The upstream repository contained no `LICENSE` file at commit
 by this repository's MIT licence. Review the upstream terms before
 redistributing the bundled data. `data/bundle/SOURCE.md` records the exact
 snapshot and measurements used here.
+
+## OpenStreetMap
+
+`data/bundle/metro-topology.json` is a derived database from OpenStreetMap
+route relations and is published under the Open Database Licence (ODbL) 1.0.
+© OpenStreetMap contributors. The source code remains MIT licensed.

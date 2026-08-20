@@ -200,11 +200,12 @@ set `SIM_CLOCK` to an RFC 3339 instant to freeze every response.
 
 ## Status
 
-**The 2.5-day bus and ticketing increment is implemented.** It includes the
+**The bus and ticketing increment plus metro topology and arrivals are
+implemented.** It includes the
 offline GTFS bundle, geometry, Damm-checked fleet identity, deterministic bus
 movement, independent duty and tracking state machines, resolve and
-single-vehicle JSON endpoints, probes, config and Docker. Metro arrivals and
-GTFS-Realtime remain in that order.
+single-vehicle JSON endpoints, probes, config and Docker, plus bundled OSM
+metro geometry and `/fleet/metro/arrivals`. GTFS-Realtime remains next.
 
 The checked wire output is under [`evidence/`](evidence/), the sixteen complete
 resolve-body goldens are under [`tests/api/goldens/`](tests/api/goldens/), and

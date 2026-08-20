@@ -191,6 +191,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       validation.nonEmpty('METRO_TOPOLOGY_PATH', './data/bundle/metro-topology.json'),
     ),
     overpassUrl: validation.url('OVERPASS_URL', 'https://overpass-api.de/api/interpreter'),
+    osmApiBaseUrl: validation.url('OSM_API_BASE_URL', 'https://api.openstreetmap.org/api/0.6'),
     cityBbox: validation.bbox('CITY_BBOX', '12.7,77.3,13.2,77.9'),
     geometryMaxStopOffsetMetres: validation.positiveNumber(
       'GEOMETRY_MAX_STOP_OFFSET_METRES',

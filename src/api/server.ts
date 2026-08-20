@@ -7,6 +7,7 @@ import { errors } from './errors.js'
 import { health, readiness } from './health.js'
 import { resolveVehicle } from './resolve.js'
 import { vehiclePosition } from './vehiclePosition.js'
+import { metroArrivals } from './metroArrivals.js'
 
 export interface ApiServerOptions {
   readonly corsAllowedOrigin?: string
@@ -108,6 +109,18 @@ function route(
       context.dutyStatus = body.duty.status
       context.trackingState = body.tracking.state
     }
+    response.setHeader('cache-control', 'no-store')
+    send(response, result.status, result.body)
+    return
+  }
+  if (url.pathname === '/fleet/metro/arrivals') {
+    const result = metroArrivals(
+      url.searchParams.get('station'),
+      url.searchParams.get('towards'),
+      url.searchParams.get('line'),
+      url.searchParams.get('limit'),
+      new Date(),
+    )
     response.setHeader('cache-control', 'no-store')
     send(response, result.status, result.body)
     return

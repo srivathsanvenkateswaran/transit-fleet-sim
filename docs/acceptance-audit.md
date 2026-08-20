@@ -1,15 +1,16 @@
 # Section 14 acceptance audit
 
-Audited against `SPEC.md` section 14 after the bus increment. `PASS` means the
+Audited against `SPEC.md` section 14 after the bus increment and metro geometry
+plus arrivals. `PASS` means the
 criterion is implemented and checked. `PARTIAL` names the missing portion.
 `NOT MET` is used for work deliberately ordered after the increment.
 
 | # | Status | Qualification |
 |---:|---|---|
 | 1 | PARTIAL | `docker compose up` reaches readiness using the committed bundle with no runtime data download. A first image build still needs normal access to the Node base image and npm packages, as the specified Dockerfile itself requires. |
-| 2 | PARTIAL | Readiness reports 5 routes, 30 vehicles and tick lag below one tick. Station count is zero because metro is the next ordered increment. |
+| 2 | PARTIAL | Readiness reports 5 routes, 30 vehicles and tick lag below one tick. The bundled topology has 85 stations, but readiness does not yet expose metro runtime counts. |
 | 3 | PASS | All 10 bundled shapes are monotonic and differ from summed haversine length by 0.119 to 0.171 percent. Per the build instruction, a future bad source falls back to recomputed haversine distance instead of failing. |
-| 4 | NOT MET | Metro topology is deliberately next. |
+| 4 | PASS | Bundled OSM topology has Purple 37, Green 32 and Yellow 16 stations and passes gap and duplicate-id validation. |
 | 5 | PASS | Missing configured bus routes fail startup and name every missing route. |
 | 6 | PASS | Damm maps `0412` to `6`; all 450,000 single-digit mutations over every serial are rejected. |
 | 7 | PASS | The literal criterion is a stale Luhn remnant that conflicts with decision 4.2. Under Damm, all 27,000 changing adjacent serial transpositions are rejected, including `09` and `90`. |
@@ -34,7 +35,7 @@ criterion is implemented and checked. `PARTIAL` names the missing portion.
 | 26 | PASS | Both config startup and duty construction reject shares whose sum differs from one and report the values. |
 | 27 | PASS | Sixteen full-body goldens enforce confidence only for inferred duty, within the configured range. |
 | 28 | PASS | A forced-rate roster swap changes duty and leaves the complete retained tracking object unchanged. |
-| 29 | NOT MET | Metro simulation is the next ordered increment. |
+| 29 | PARTIAL | Bundled metro topology and station-pair arrivals are implemented; full signalling cursor, headway dispatch and metro position endpoint remain. |
 | 30 | NOT MET | GTFS-Realtime is ordered after metro. |
 | 31 | NOT MET | GTFS-Realtime is ordered after metro. |
 | 32 | NOT MET | GTFS-Realtime is ordered after metro. |
@@ -45,7 +46,7 @@ criterion is implemented and checked. `PARTIAL` names the missing portion.
 | 37 | NOT MET | GTFS-Realtime is ordered after metro. |
 | 38 | NOT MET | GTFS-Realtime is ordered after metro. JSON predictions already omit unknown duty. |
 | 39 | NOT MET | GTFS-Realtime is ordered after metro. |
-| 40 | NOT MET | Metro and GTFS-Realtime are not built yet. |
+| 40 | PARTIAL | Metro topology and JSON arrivals are built. GTFS-Realtime remains ordered next. |
 | 41 | PASS | A test parses `src/config.ts` and `.env.example` and requires their variable sets to be identical. |
 | 42 | PARTIAL | Executable source is clean and enforced. Planning documents necessarily contain the forbidden words while stating this rule, so a literal whole-repository grep would flag the specification itself. |
 | 43 | PASS | ESLint and a source-scan test independently forbid unseeded random calls. |
@@ -54,7 +55,6 @@ criterion is implemented and checked. `PARTIAL` names the missing portion.
 
 ## Increment boundary
 
-The service intentionally does not register `/fleet/metro/arrivals`,
-`/fleet/routes`, `/admin/scenario` or GTFS-Realtime routes. They return the same
-ordinary `404` as any unknown path and have no TODO stubs. Metro geometry and
-arrivals are next, followed by GTFS-Realtime, matching section 16.2.
+The service intentionally does not register `/fleet/routes`, `/admin/scenario`
+or GTFS-Realtime routes. They return the same ordinary `404` as any unknown
+path and have no TODO stubs. GTFS-Realtime is next, matching section 16.2.
