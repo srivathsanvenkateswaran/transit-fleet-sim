@@ -50,6 +50,58 @@ export const config = {
     'BUS_PEAK_SPEED_FACTOR',
   ),
   busPeakWindows: process.env.BUS_PEAK_WINDOWS ?? '07:00-10:00,17:00-21:00',
+  busFixIntervalSeconds: parsePositiveNumber(
+    process.env.BUS_FIX_INTERVAL_SECONDS ?? '20',
+    'BUS_FIX_INTERVAL_SECONDS',
+  ),
+  busFixJitterSeconds: parseNonNegativeNumber(
+    process.env.BUS_FIX_JITTER_SECONDS ?? '10',
+    'BUS_FIX_JITTER_SECONDS',
+  ),
+  busStaleAfterSeconds: parsePositiveNumber(
+    process.env.BUS_STALE_AFTER_SECONDS ?? '90',
+    'BUS_STALE_AFTER_SECONDS',
+  ),
+  busDarkAfterSeconds: parsePositiveNumber(
+    process.env.BUS_DARK_AFTER_SECONDS ?? '300',
+    'BUS_DARK_AFTER_SECONDS',
+  ),
+  busCoverageShare: parseShare(process.env.BUS_COVERAGE_SHARE ?? '0.75', 'BUS_COVERAGE_SHARE'),
+  busDropoutRatePerHour: parseNonNegativeNumber(
+    process.env.BUS_DROPOUT_RATE_PER_HOUR ?? '1.5',
+    'BUS_DROPOUT_RATE_PER_HOUR',
+  ),
+  busDropoutMinSeconds: parseNonNegativeNumber(
+    process.env.BUS_DROPOUT_MIN_SECONDS ?? '60',
+    'BUS_DROPOUT_MIN_SECONDS',
+  ),
+  busDropoutMaxSeconds: parseNonNegativeNumber(
+    process.env.BUS_DROPOUT_MAX_SECONDS ?? '420',
+    'BUS_DROPOUT_MAX_SECONDS',
+  ),
+  busGpsNoiseMetres: parseNonNegativeNumber(
+    process.env.BUS_GPS_NOISE_METRES ?? '12',
+    'BUS_GPS_NOISE_METRES',
+  ),
+  dutyConfirmedShare: parseShare(process.env.DUTY_CONFIRMED_SHARE ?? '0.60', 'DUTY_CONFIRMED_SHARE'),
+  dutyInferredShare: parseShare(process.env.DUTY_INFERRED_SHARE ?? '0.25', 'DUTY_INFERRED_SHARE'),
+  dutyUnknownShare: parseShare(process.env.DUTY_UNKNOWN_SHARE ?? '0.10', 'DUTY_UNKNOWN_SHARE'),
+  dutyOutOfServiceShare: parseShare(
+    process.env.DUTY_OUT_OF_SERVICE_SHARE ?? '0.05',
+    'DUTY_OUT_OF_SERVICE_SHARE',
+  ),
+  dutyInferredConfidenceMin: parseShare(
+    process.env.DUTY_INFERRED_CONFIDENCE_MIN ?? '0.55',
+    'DUTY_INFERRED_CONFIDENCE_MIN',
+  ),
+  dutyInferredConfidenceMax: parseShare(
+    process.env.DUTY_INFERRED_CONFIDENCE_MAX ?? '0.95',
+    'DUTY_INFERRED_CONFIDENCE_MAX',
+  ),
+  dutySwapRatePerDay: parseNonNegativeNumber(
+    process.env.DUTY_SWAP_RATE_PER_DAY ?? '0.15',
+    'DUTY_SWAP_RATE_PER_DAY',
+  ),
   geometryMaxStopOffsetMetres: parsePositiveNumber(
     process.env.GEOMETRY_MAX_STOP_OFFSET_METRES ?? '150',
     'GEOMETRY_MAX_STOP_OFFSET_METRES',
@@ -76,6 +128,14 @@ function parseNonNegativeNumber(raw: string, name: string): number {
   const value = Number(raw)
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be a non-negative number, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
+function parseShare(raw: string, name: string): number {
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${name} must be between 0 and 1, got ${JSON.stringify(raw)}`)
   }
   return value
 }

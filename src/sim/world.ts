@@ -3,18 +3,34 @@ import { loadGtfs, type GtfsStopTime, type LoadedGtfs } from '../geometry/loadGt
 import { positionAt } from '../geometry/shape.js'
 import type {
   CreateWorld,
-  DutyObservation,
   FleetMember,
   Progress,
   StopPrediction,
-  TrackingObservation,
   VehicleObservation,
   WorldPort,
   WorldStatus,
 } from '../world/port.js'
 import { createClock, type SimClock } from './clock.js'
 import { advanceCursor, createCursor } from './cursor.js'
+import {
+  addGpsNoise,
+  createDeviceState,
+  defaultBusDeviceProfile,
+  trackingObservation,
+  updateDevice,
+  type BusDeviceProfile,
+  type DeviceState,
+  type FixSnapshot,
+} from './device.js'
 import { dispatchInitialFleet, representativeTrip, type ActiveBus } from './dispatch.js'
+import {
+  createDutyState,
+  defaultBusDutyProfile,
+  dutyObservation,
+  maybeSwapDuty,
+  type BusDutyProfile,
+  type DutyState,
+} from './duty.js'
 import { defaultBusMotionProfile, type BusMotionProfile } from './profile.js'
 
 export interface SimWorldOptions {
@@ -22,6 +38,8 @@ export interface SimWorldOptions {
   readonly tickMs?: number
   readonly speedup?: number
   readonly profile?: BusMotionProfile
+  readonly deviceProfile?: BusDeviceProfile
+  readonly dutyProfile?: BusDutyProfile
 }
 
 export class SimWorld implements WorldPort {
@@ -30,7 +48,11 @@ export class SimWorld implements WorldPort {
   readonly #tickMs: number
   readonly #speedup: number
   readonly #profile: BusMotionProfile
+  readonly #deviceProfile: BusDeviceProfile
+  readonly #dutyProfile: BusDutyProfile
   readonly #buses = new Map<string, ActiveBus>()
+  readonly #devices = new Map<string, DeviceState>()
+  readonly #duties = new Map<string, DutyState>()
   #timer: NodeJS.Timeout | null = null
   #lastTickAt: Date
   #tickLagMs = 0
@@ -41,9 +63,29 @@ export class SimWorld implements WorldPort {
     this.#tickMs = options.tickMs ?? config.simTickMs
     this.#speedup = options.speedup ?? config.simSpeedup
     this.#profile = options.profile ?? defaultBusMotionProfile
+    this.#deviceProfile = options.deviceProfile ?? defaultBusDeviceProfile
+    this.#dutyProfile = options.dutyProfile ?? defaultBusDutyProfile
     this.#lastTickAt = this.#clock.now()
     for (const bus of dispatchInitialFleet(fleet, gtfs, this.#profile, this.#lastTickAt)) {
       this.#buses.set(bus.member.bin, bus)
+      this.#duties.set(
+        bus.member.bin,
+        createDutyState(
+          bus.member.bin,
+          this.#lastTickAt,
+          serviceDate(this.#lastTickAt, config.simTimezone),
+          this.#dutyProfile,
+        ),
+      )
+      this.#devices.set(
+        bus.member.bin,
+        createDeviceState(
+          bus.member.bin,
+          this.#lastTickAt,
+          () => this.fixSnapshot(bus, 0),
+          this.#deviceProfile,
+        ),
+      )
     }
   }
 
@@ -54,11 +96,15 @@ export class SimWorld implements WorldPort {
   observe(bin: string, at: Date): VehicleObservation | null {
     const bus = this.#buses.get(bin)
     if (bus === undefined) return null
+    const dutyState = this.#duties.get(bin)
+    const device = this.#devices.get(bin)
+    if (dutyState === undefined || device === undefined) throw new Error(`Incomplete world state for ${bin}`)
+    const duty = dutyObservation(dutyState, bus, [...this.#gtfs.routes.values()], this.#dutyProfile)
     return {
       bin,
       class: bus.member.class,
-      duty: this.duty(bus),
-      tracking: this.tracking(bus, at),
+      duty,
+      tracking: trackingObservation(device, at, duty.route !== null, this.#deviceProfile),
       overridden: false,
     }
   }
@@ -66,6 +112,18 @@ export class SimWorld implements WorldPort {
   predictNextStops(bin: string, _at: Date, limit: number): readonly StopPrediction[] {
     const bus = this.#buses.get(bin)
     if (bus === undefined || bus.cursor.layoverUntilMs !== null) return []
+    const duty = this.#duties.get(bin)
+    const device = this.#devices.get(bin)
+    if (duty === undefined || device === undefined) return []
+    const tracking = trackingObservation(device, _at, true, this.#deviceProfile)
+    if (
+      duty.status === 'unknown' ||
+      duty.status === 'out_of_service' ||
+      tracking.state === 'dark' ||
+      tracking.state === 'untracked'
+    ) {
+      return []
+    }
     const metresPerSecond = bus.cursor.speedKph / 3.6
     return bus.trip.stops
       .slice(bus.cursor.nextStopIndex, bus.cursor.nextStopIndex + limit)
@@ -104,7 +162,19 @@ export class SimWorld implements WorldPort {
     const elapsedSeconds = realElapsedSeconds * this.#speedup
     const expectedAt = this.#lastTickAt.getTime() + this.#tickMs
     this.#tickLagMs = Math.max(0, at.getTime() - expectedAt)
-    for (const bus of this.#buses.values()) this.advanceBus(bus, this.#lastTickAt, elapsedSeconds)
+    for (const bus of this.#buses.values()) {
+      this.advanceBus(bus, this.#lastTickAt, elapsedSeconds)
+      const duty = this.#duties.get(bus.member.bin)
+      const device = this.#devices.get(bus.member.bin)
+      if (duty === undefined || device === undefined) throw new Error(`Incomplete world state for ${bus.member.bin}`)
+      maybeSwapDuty(duty, bus.member.bin, at, this.#dutyProfile)
+      updateDevice(
+        device,
+        at,
+        (fixSequence) => this.fixSnapshot(bus, fixSequence),
+        this.#deviceProfile,
+      )
+    }
     this.#lastTickAt = new Date(at)
   }
 
@@ -148,49 +218,23 @@ export class SimWorld implements WorldPort {
     }
   }
 
-  private duty(bus: ActiveBus): DutyObservation {
-    const firstStop = bus.trip.stops[0]
-    return {
-      status: 'confirmed',
-      confidence: null,
-      route: {
-        id: bus.route.id,
-        number: bus.route.number,
-        name: bus.route.name,
-        nameLocal: null,
-      },
-      headsign: bus.trip.headsign,
-      directionId: bus.trip.directionId,
-      trip: {
-        id: bus.trip.id,
-        startTime: firstStop?.departureTime ?? '00:00:00',
-        startDate: serviceDate(bus.tripStartedAt, config.simTimezone),
-        startedAt: bus.tripStartedAt.toISOString(),
-      },
-      since: bus.tripStartedAt.toISOString(),
-      source: 'roster',
-      alternatives: [],
-      reason: null,
-    }
-  }
-
-  private tracking(bus: ActiveBus, at: Date): TrackingObservation {
+  private fixSnapshot(bus: ActiveBus, fixSequence: number): FixSnapshot {
     const shape = this.#gtfs.shapes.get(bus.trip.shapeId)
     if (shape === undefined) throw new Error(`Missing active shape ${bus.trip.shapeId}`)
     const interpolated = positionAt(shape, bus.cursor.distanceMetres)
     const stopped = bus.cursor.dwellUntilMs !== null || bus.cursor.layoverUntilMs !== null
     return {
-      state: 'live',
-      observedAt: at.toISOString(),
-      position: {
-        ...interpolated,
-        speedKph: stopped ? 0 : bus.cursor.speedKph,
-        accuracyMetres: 0,
-      },
+      position: addGpsNoise(
+        {
+          ...interpolated,
+          speedKph: stopped ? 0 : bus.cursor.speedKph,
+          accuracyMetres: 0,
+        },
+        this.#deviceProfile,
+        bus.member.bin,
+        fixSequence,
+      ),
       progress: this.progress(bus, shape.lengthMetres),
-      source: 'simulated_gnss',
-      reason: null,
-      recoveredFromDropout: false,
     }
   }
 

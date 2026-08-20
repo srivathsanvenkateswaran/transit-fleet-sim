@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { generateFleet } from '../../src/fleet/generate.js'
 import { loadGtfs } from '../../src/geometry/loadGtfs.js'
 import type { SimClock } from '../../src/sim/clock.js'
+import { defaultBusDeviceProfile } from '../../src/sim/device.js'
 import { defaultBusMotionProfile } from '../../src/sim/profile.js'
 import { SimWorld } from '../../src/sim/world.js'
 
@@ -32,7 +33,17 @@ describe('simulation world', () => {
   it('moves independently of requests and reports a completed tick', async () => {
     const gtfs = await loadGtfs()
     const fleet = generateFleet({ seed: 3, routes: ['G-4'], busesPerRoute: 1 })
-    const world = new SimWorld(gtfs, fleet, { clock: new FixedClock(START) })
+    const world = new SimWorld(gtfs, fleet, {
+      clock: new FixedClock(START),
+      deviceProfile: {
+        ...defaultBusDeviceProfile,
+        seed: 3,
+        coverageShare: 1,
+        fixIntervalSeconds: 1,
+        fixJitterSeconds: 0,
+        dropoutRatePerHour: 0,
+      },
+    })
     const bin = fleet[0]!.bin
     const before = world.observe(bin, START)
     expect(world.observe(bin, START)).toEqual(before)
