@@ -1117,3 +1117,342 @@ ticket was issued, and calls this service for what is true now.*
 A ticket rendering should be able to say, in small type, "vehicle details as of
 20 August 2026", and that is the entire reason `meta.generatedAt` is not
 optional.
+
+---
+
+## 7. The rest of the HTTP surface
+
+| Method | Path | Content type | Purpose |
+|---|---|---|---|
+| `GET` | `/fleet/resolve` | JSON | Section 6.1 |
+| `GET` | `/fleet/metro/arrivals` | JSON | Section 6.6 |
+| `GET` | `/fleet/vehicle/{bin}/position` | JSON | 7.1 |
+| `GET` | `/gtfs-rt/vehicle-positions` | `application/x-protobuf` | 7.2 |
+| `GET` | `/gtfs-rt/trip-updates` | `application/x-protobuf` | 7.3 |
+| `GET` | `/gtfs-rt/vehicle-positions.json` | JSON | 7.2, debug only |
+| `GET` | `/gtfs-rt/trip-updates.json` | JSON | 7.3, debug only |
+| `GET` | `/fleet/routes` | JSON | 7.4 |
+| `GET` | `/healthz` | JSON | 7.4 |
+| `GET` | `/readyz` | JSON | 7.4 |
+| `POST` | `/admin/scenario` | JSON | 7.5, token-gated |
+| `DELETE` | `/admin/scenario` | JSON | 7.5, token-gated |
+
+### 7.1 `GET /fleet/vehicle/{bin}/position`
+
+**Why this exists.** After buying a ticket, an app tracks exactly one bus. Making
+it fetch, decompress and parse a fleet-wide protobuf every ten seconds to find
+one entity is wasteful on a phone on a mobile connection, and it forces a
+protobuf dependency into an app that otherwise needs none. This endpoint is the
+same data for one vehicle, in JSON, cheap.
+
+`200 OK`, `Cache-Control: no-store`.
+
+```jsonc
+{
+  "bin": "BLR-04127",
+  "class": "bus",
+  "tracking": { /* identical shape to resolve's `tracking`, section 6.2 */ },
+  "duty": {
+    "status": "confirmed",
+    "route": { "id": "1066", "number": "500-D" },
+    "trip":  { "id": "1042" }
+  },
+  "nextStops": [
+    { "id": "20985", "name": "Domlur", "nameLocal": "ದೊಮ್ಮಲೂರು", "sequence": 14,
+      "eta": { "seconds": 96,  "uncertaintySeconds": 45 } },
+    { "id": "21004", "name": "Ejipura", "nameLocal": null,        "sequence": 15,
+      "eta": { "seconds": 341, "uncertaintySeconds": 75 } }
+  ],
+  "meta": { "simulated": true, "seed": 1, "generatedAt": "2026-08-20T09:41:26Z" }
+}
+```
+
+- **`tracking` is byte-for-byte the same shape as in `/fleet/resolve`.** One
+  type, one parser, one set of tests on the consuming side. This is worth more
+  than any saving from trimming it.
+- **`nextStops` is capped at `PREDICTION_HORIZON_STOPS`** (default 5) and every
+  entry carries an `uncertaintySeconds`. It is empty when
+  `tracking.state` is `dark` or `untracked`, or when `duty.status` is `unknown`
+  - the same rule as section 7.3, because it is the same claim in a different
+  wrapper.
+- `404 unknown_bin` for a BIN with no registry row. **No check-digit
+  validation here**: this is a machine-to-machine path where the BIN came from a
+  previous response, not from a rider's fingers, and rejecting it on a checksum
+  would only mask a bug in the caller. That asymmetry with section 6.3 is
+  deliberate and section 14 tests both halves.
+- **`Cache-Control: no-store`**, not a TTL. A position that a CDN can serve
+  twice is a position that is silently older than its `fixAgeSeconds` claims.
+
+### 7.2 `GET /gtfs-rt/vehicle-positions`
+
+`200 OK`, `Content-Type: application/x-protobuf`, body is a serialised
+`transit_realtime.FeedMessage`.[^gtfsrt-proto]
+
+```
+header.gtfs_realtime_version = "2.0"
+header.incrementality        = FULL_DATASET
+header.timestamp             = now, POSIX seconds
+```
+
+One `FeedEntity` per vehicle that has a position - that is, every vehicle whose
+`tracking.state` is `live`, `stale` or `dark`.
+
+| GTFS-RT field | Source |
+|---|---|
+| `entity.id` | The BIN, canonical form: `BLR-04127` |
+| `vehicle.vehicle.id` | The BIN, canonical form |
+| `vehicle.vehicle.license_plate` | Current plate, normalised: `KA01F1234`. **Omitted for metro.** |
+| `vehicle.vehicle.label` | **Omitted for buses.** For metro: `Purple Line to Whitefield (Kadugodi)` |
+| `vehicle.trip.trip_id` | `duty.trip.id`, **omitted when `duty.status` is `unknown`** |
+| `vehicle.trip.route_id` | `duty.route.id`, omitted likewise |
+| `vehicle.trip.start_time` / `start_date` | `duty.trip.startTime` / `startDate` |
+| `vehicle.trip.schedule_relationship` | `SCHEDULED` |
+| `vehicle.position.latitude` / `longitude` | The fix |
+| `vehicle.position.bearing` | Degrees clockwise from true north |
+| `vehicle.position.speed` | **Metres per second**, per the spec's units - not km/h |
+| `vehicle.current_stop_sequence` | GTFS `stop_sequence` of the next stop |
+| `vehicle.stop_id` | That stop's `stop_id` |
+| `vehicle.current_status` | `INCOMING_AT` \| `STOPPED_AT` \| `IN_TRANSIT_TO` |
+| `vehicle.timestamp` | **`observedAt`, when the fix was taken.** Not now. |
+
+**The staleness is carried by `vehicle.timestamp`, and that is the whole
+mechanism.** The specification defines it as the "Moment at which the vehicle's
+position was measured",[^gtfsrt-ref] so `header.timestamp - vehicle.timestamp`
+is the fix age, and any conforming consumer already knows how to compute it.
+**This service must not backdate the header or forward-date the fix to make the
+feed look fresher.** Section 14 asserts that a `stale` vehicle's entity really is
+older than `BUS_STALE_AFTER_SECONDS` in the emitted feed.
+
+**Vehicles with `tracking.state: untracked` are absent from the feed.** There is
+no GTFS-Realtime way to say "this vehicle exists and has no device", and
+inventing one would be worse than the truth, which is that the feed simply does
+not cover the whole fleet - exactly as real feeds do not. A consuming app
+discovers coverage gaps the way it would in production: by comparing the feed
+against the timetable. `/fleet/routes` (7.4) publishes the per-route coverage
+share so a demo can point at the number.
+
+**`Cache-Control: max-age=<FEED_TTL_SECONDS>`**, default 15, comfortably inside
+the best-practice guidance that a feed be refreshed at least every 30
+seconds.[^gtfsrt-bp] An `ETag` over the serialised body lets a polling consumer
+take a `304`.
+
+**Both vehicle classes are in one feed.** Splitting them would be modelling the
+simulator's internals rather than the domain: a real city with a bus feed and a
+metro feed has two operators, and a consumer that wants one mode filters on
+`route_id`. `?class=bus` and `?class=metro` query parameters are supported as a
+convenience and change nothing about the default.
+
+### 7.3 `GET /gtfs-rt/trip-updates`, and the decision to publish predictions
+
+**The decision: publish, with a mandatory band on every event, and `NO_DATA`
+beyond a short horizon.** Controlled by `PUBLISH_TRIP_UPDATES`, default `true`.
+
+#### The argument for not publishing
+
+It is not a weak argument and it deserves to be stated properly.
+
+A simulator that publishes arrival predictions is publishing a number it made
+up. Worse, it made up the ground truth *and* the prediction, so it can make them
+agree to the second, and a consuming app built against a feed whose predictions
+are always right will quietly grow to depend on that. The first contact with a
+real operator feed - where a prediction is wrong by two minutes as a matter of
+course - then breaks the app's entire visual language. Not publishing
+`trip-updates` at all would force the consuming app to confront, on day one,
+that it has vehicle positions and no arrival times, and to design for that.
+
+There is also a smaller, sharper point: **`vehicle-positions` is a measurement
+and `trip-updates` is an opinion.** A simulator has some claim to producing
+measurements. Its claim to producing opinions is much weaker, because the
+opinion of a real prediction engine encodes traffic, dwell behaviour, signal
+priority and historical run times that this service models with a constant.
+
+#### The argument for publishing, which wins
+
+1. **The consuming app needs arrival times, and refusing to serve them does not
+   remove the requirement - it relocates it.** An app told "here is a bus at
+   these coordinates, on this route" and nothing more will compute an ETA from
+   distance and speed, in the client, without a band, and display it as a
+   number. That is a worse outcome than a server-side prediction with an honest
+   uncertainty, because the client has less information and no natural place to
+   put the band.
+
+2. **GTFS-Realtime has a field for exactly this, and it is not optional in
+   spirit.** `StopTimeEvent.uncertainty` "roughly specifies the expected error in
+   true delay as an integer in seconds", and the spec's own worked example is a
+   bus predicted late "within a 4 minute window of error" carrying uncertainty
+   `240`.[^gtfsrt-tripupdates] The specification also says that if uncertainty is
+   omitted "it is interpreted as unknown", and that a certain prediction sets it
+   to `0`.[^gtfsrt-ref] A simulator that publishes predictions **with** a band is
+   using the standard as designed; one that refuses to publish is leaving a
+   documented field unexercised and forcing the consuming app to build the same
+   concept badly.
+
+3. **`SKIPPED` and `NO_DATA` exist for the parts we cannot support.** A
+   `StopTimeUpdate` with `schedule_relationship: NO_DATA` means "no realtime
+   timing available", and the spec requires that arrival and departure then
+   **must not** be supplied.[^gtfsrt-ref] That is a first-class way to say "I do
+   not know", and it is exactly what a bus with a dead device deserves.
+
+4. **The honesty requirement is satisfiable here in a way it is not in the
+   client.** The band widens with distance, the horizon is short, and beyond it
+   the feed says nothing. That is a modelled uncertainty, not a fabricated
+   certainty.
+
+#### The rules, which are what make it honest
+
+```
+header.gtfs_realtime_version = "2.0"
+header.incrementality        = FULL_DATASET
+header.timestamp             = now
+```
+
+One `FeedEntity` per **vehicle with a known trip** - that is, `duty.status` in
+`{confirmed, inferred}`. Never more than one `TripUpdate` per trip, per the
+spec's "at most one trip update for each scheduled trip".[^gtfsrt-tripupdates]
+
+1. **`uncertainty` is set on every `StopTimeEvent` this service emits. Always.
+   Never omitted, and never `0`.** `0` would mean a certain prediction, and
+   nothing here is certain. Section 14 asserts it over the whole feed.
+
+2. **The band grows with remaining distance:**
+
+   ```
+   uncertaintySeconds =
+       PREDICTION_UNCERTAINTY_BASE_SECONDS
+     + PREDICTION_UNCERTAINTY_PER_STOP_SECONDS * stopsRemaining
+   ```
+
+   Bus defaults: `45 + 30 * n`. So the next stop carries +/- 45 s, the fifth
+   carries +/- 165 s. Metro defaults are far tighter, `15 + 5 * n`, because a
+   train on a signalled line with a fixed dwell genuinely is more predictable,
+   and the consuming app should see that difference.
+
+   It is deliberately **linear, not calibrated**. Real prediction error grows
+   super-linearly with the number of intervening signals and stops, and this
+   model does not claim otherwise. Section 13 lists it as stubbed.
+
+3. **Beyond `PREDICTION_HORIZON_STOPS`** (default 5), every remaining stop is
+   emitted with `schedule_relationship: NO_DATA` and **no** `arrival` or
+   `departure`, as the specification requires.[^gtfsrt-ref] Publishing a
+   prediction twenty stops ahead of a bus in Bengaluru traffic would be
+   fabrication with extra steps.
+
+4. **A vehicle whose `tracking.state` is `dark` or `untracked` produces no
+   predictions at all.** Its `TripUpdate` is emitted with every stop as
+   `NO_DATA`, or is omitted entirely when `TRIP_UPDATES_OMIT_UNTRACKED=true`
+   (default `false`). Emitting the trip with `NO_DATA` is the better default,
+   because it tells a consumer the trip is running and the timing is unknown -
+   which is more than silence tells it.
+
+5. **A vehicle whose `duty.status` is `unknown` produces no `TripUpdate`.**
+   There is no trip to attach one to, and `TripDescriptor.trip_id` is not
+   something to guess at.
+
+6. **Delay propagation follows the specification.** Where a stop has no explicit
+   update, the delay from the preceding update propagates forward, and a
+   `SCHEDULED` or `NO_DATA` relationship stops the propagation.[^gtfsrt-tripupdates]
+   The simulator emits explicit updates within the horizon and `NO_DATA` outside
+   it, so propagation never runs past the horizon by accident.
+
+**The one-sentence version:** *this service publishes what it can support, with
+the error bar attached, and says `NO_DATA` for the rest.*
+
+**The debug JSON mirrors.** `/gtfs-rt/*.json` serve the same `FeedMessage` as
+JSON, using the protobuf library's own JSON mapping. They exist so that a demo,
+a curl, or a test assertion does not need a protobuf decoder, and they carry a
+`X-Debug-Endpoint: true` header. They are **not** a supported consumer interface
+and the README says so.
+
+### 7.4 Read-only operational endpoints
+
+**`GET /fleet/routes`** - what the simulator is running, and how well
+instrumented it is. This is what makes the coverage story demonstrable rather
+than asserted.
+
+```jsonc
+{
+  "routes": [
+    { "class": "bus", "id": "1066", "number": "500-D",
+      "name": "Central Silk Board to Hebbala Bridge",
+      "shapeIds": ["500-D UP", "500-D DOWN"],
+      "vehicleCount": 6,
+      "coverage": { "tracked": 4, "untracked": 2, "share": 0.67 } },
+    { "class": "metro", "id": "purple", "number": "Purple Line",
+      "name": "Challaghatta to Whitefield (Kadugodi)",
+      "colour": "#9C27B0", "stationCount": 37,
+      "vehicleCount": 8,
+      "coverage": { "tracked": 8, "untracked": 0, "share": 1.0 },
+      "headwaySeconds": { "peak": 480, "offPeak": 720 } }
+  ],
+  "meta": { "simulated": true, "seed": 1, "generatedAt": "..." }
+}
+```
+
+**`GET /healthz`** - is the process alive. `200` with `{ "status": "ok",
+"uptimeSeconds": n }`. No dependency checks; a liveness probe that fails on a
+downstream is a liveness probe that restarts a healthy process.
+
+**`GET /readyz`** - is the simulator actually simulating. This is the one a
+monitor should watch.
+
+```jsonc
+{
+  "status": "ready",
+  "geometryLoaded": true,
+  "routes": 5, "metroLines": 3,
+  "vehicles": 54,
+  "lastTickAt": "2026-08-20T09:41:26Z",
+  "tickLagMs": 12,
+  "seed": 1
+}
+```
+
+`503` if geometry failed to load, if no vehicles were generated, or if
+`lastTickAt` is older than `SIM_TICK_MS * 5`. **A process that answers `200` on
+`/` while the world is frozen is the failure mode this exists to catch.**
+
+### 7.5 The scenario control surface
+
+A demo cannot wait forty minutes for a dropout to happen by chance. Token-gated,
+and **absent entirely** - `404`, not `401` - when `ADMIN_TOKEN` is unset, so a
+deployment that forgets to set it has no admin surface rather than a guessable
+one.
+
+`POST /admin/scenario`, header `Authorization: Bearer <ADMIN_TOKEN>`:
+
+```jsonc
+{
+  "target": { "bin": "BLR-04127" },        // or { "route": "500-D" } or { "all": true }
+  "set": {
+    "tracking": "dark",                     // live|stale|dark|untracked, or null to release
+    "duty": "unknown",                      // any duty.status, or null to release
+    "dutyReason": "roster_swapped"
+  },
+  "ttlSeconds": 300                         // required, 1..3600. Overrides expire.
+}
+```
+
+`DELETE /admin/scenario` clears all overrides.
+
+**Every override has a mandatory TTL.** A demo forced into a state and never
+released is a simulator that quietly stopped simulating, and `/readyz` would
+still say `ready`. The TTL makes the world self-healing.
+
+**Overrides are visible.** Any response about an overridden vehicle carries
+`meta.overridden: true`, so nobody debugs a forced state for twenty minutes.
+
+### 7.6 Errors and headers, everywhere
+
+- Every error body: `{ "error": "<machine_readable>", "message": "<human>",
+  ...context }`. The `error` string is the contract; `message` is copy.
+- `400` for a malformed request, `404` for a well-formed request naming
+  something that does not exist, `422` for a well-formed request that names
+  something real and is the wrong question about it, `503` when the simulator is
+  not ready. No other statuses.
+- **CORS**: `Access-Control-Allow-Origin` from `CORS_ALLOWED_ORIGINS`, a
+  comma-separated list, default `*`. Every endpoint is public and read-only, so
+  `*` is honest; the variable exists because a deployment may want to narrow it.
+- **`X-Simulated: true`** on every single response, including errors. Belt and
+  braces with `meta.simulated`, and it survives a consumer that only logs
+  headers.
+- Every response carries `X-Request-Id`, echoed from the request when present.
