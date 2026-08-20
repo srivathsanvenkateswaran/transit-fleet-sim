@@ -25,6 +25,31 @@ export const config = {
   busesPerRoute: parsePositiveInteger(process.env.BUSES_PER_ROUTE ?? '6', 'BUSES_PER_ROUTE'),
   busHubCode: parseHubCode(process.env.BUS_HUB_CODE ?? 'BLR', 'BUS_HUB_CODE'),
   simSeed: parseInteger(process.env.SIM_SEED ?? '1', 'SIM_SEED'),
+  simTickMs: parsePositiveInteger(process.env.SIM_TICK_MS ?? '1000', 'SIM_TICK_MS'),
+  simTimezone: process.env.SIM_TIMEZONE ?? 'Asia/Kolkata',
+  simClock: process.env.SIM_CLOCK ?? 'system',
+  simSpeedup: parsePositiveNumber(process.env.SIM_SPEEDUP ?? '1', 'SIM_SPEEDUP'),
+  busTerminalLayoverSeconds: parseNonNegativeNumber(
+    process.env.BUS_TERMINAL_LAYOVER_SECONDS ?? '300',
+    'BUS_TERMINAL_LAYOVER_SECONDS',
+  ),
+  busSpeedKphMean: parsePositiveNumber(process.env.BUS_SPEED_KPH_MEAN ?? '17', 'BUS_SPEED_KPH_MEAN'),
+  busSpeedKphSd: parseNonNegativeNumber(process.env.BUS_SPEED_KPH_SD ?? '4', 'BUS_SPEED_KPH_SD'),
+  busSpeedKphMin: parsePositiveNumber(process.env.BUS_SPEED_KPH_MIN ?? '5', 'BUS_SPEED_KPH_MIN'),
+  busSpeedKphMax: parsePositiveNumber(process.env.BUS_SPEED_KPH_MAX ?? '45', 'BUS_SPEED_KPH_MAX'),
+  busDwellSecondsMean: parseNonNegativeNumber(
+    process.env.BUS_DWELL_SECONDS_MEAN ?? '20',
+    'BUS_DWELL_SECONDS_MEAN',
+  ),
+  busDwellSecondsSd: parseNonNegativeNumber(
+    process.env.BUS_DWELL_SECONDS_SD ?? '8',
+    'BUS_DWELL_SECONDS_SD',
+  ),
+  busPeakSpeedFactor: parsePositiveNumber(
+    process.env.BUS_PEAK_SPEED_FACTOR ?? '0.7',
+    'BUS_PEAK_SPEED_FACTOR',
+  ),
+  busPeakWindows: process.env.BUS_PEAK_WINDOWS ?? '07:00-10:00,17:00-21:00',
   geometryMaxStopOffsetMetres: parsePositiveNumber(
     process.env.GEOMETRY_MAX_STOP_OFFSET_METRES ?? '150',
     'GEOMETRY_MAX_STOP_OFFSET_METRES',
@@ -43,6 +68,14 @@ function parsePositiveNumber(raw: string, name: string): number {
   const value = Number(raw)
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${name} must be a positive number, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
+function parseNonNegativeNumber(raw: string, name: string): number {
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative number, got ${JSON.stringify(raw)}`)
   }
   return value
 }
