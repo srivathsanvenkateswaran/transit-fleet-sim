@@ -1,9 +1,15 @@
 import { createServer } from 'node:http'
 import { config } from './config.js'
-import { loadSpikeShape } from './geometry/loadSpikeShape.js'
+import { loadGtfs } from './geometry/loadGtfs.js'
 import { positionAt } from './geometry/shape.js'
 
-const shape = await loadSpikeShape()
+const gtfs = await loadGtfs()
+const route = [...gtfs.routes.values()].find((candidate) => candidate.number === '500-D')
+if (route === undefined) throw new Error('Configured GTFS has no 500-D route')
+const trip = route.trips[0]
+if (trip === undefined) throw new Error('Configured 500-D route has no trips')
+const shape = gtfs.shapes.get(trip.shapeId)
+if (shape === undefined) throw new Error(`Configured GTFS has no shape ${trip.shapeId}`)
 const startedAt = Date.now()
 const server = createServer((request, response) => {
   if (request.method !== 'GET' || request.url !== '/position') {
@@ -16,7 +22,7 @@ const server = createServer((request, response) => {
   response.writeHead(200, { 'content-type': 'application/json', 'x-simulated': 'true' })
   response.end(
     JSON.stringify({
-      route: '500-D',
+      route: route.number,
       shapeId: shape.id,
       distanceMetres,
       position: positionAt(shape, distanceMetres),

@@ -15,7 +15,7 @@ import {
 
 const DEFAULT_ROUTES = ['500-D', '500-A', 'G-4', '335-E', '401-K'] as const
 const UPSTREAM_COMMIT = '9b10e7bacbd5f81b5df9b2dd5de7b9d9d8b4d52c'
-const SOURCE_ARGUMENT = process.argv[2] ?? config.gtfsUrl
+const SOURCE_ARGUMENT = process.argv[2] ?? config.upstreamGtfsUrl
 
 type Row = Record<string, string>
 
@@ -56,7 +56,7 @@ try {
   const feedInfo = await readRows(join(sourceDirectory, 'feed_info.txt'))
   const attributions = await readRows(join(sourceDirectory, 'attributions.txt'))
 
-  const outputDirectory = config.gtfsPath
+  const outputDirectory = resolve(config.gtfsBundlePath, 'gtfs')
   await rm(outputDirectory, { recursive: true, force: true })
   await mkdir(outputDirectory, { recursive: true })
   await writeGzipRows(outputDirectory, 'agency.txt', selectedAgency)
@@ -243,7 +243,7 @@ function renderSourceDocument(feedVersion: string, measurement: readonly ShapeMe
     .join('\n')
   return `# Bundled BMTC GTFS source
 
-- Upstream: ${config.gtfsUrl}
+- Upstream: ${config.upstreamGtfsUrl}
 - Repository: ${config.gtfsRepositoryUrl}
 - Commit: \`${UPSTREAM_COMMIT}\`
 - Feed version: \`${feedVersion}\`
