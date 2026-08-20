@@ -107,11 +107,20 @@ rider's phone rather than silently resolving to a real different bus.
 
 ## The interface
 
+Available in the bus increment:
+
 ```
 GET /fleet/resolve?code=BLR-04126        # BIN, from a QR scan or typed
-GET /fleet/resolve?code=KA01F1234        # number plate, typed
-GET /fleet/metro/arrivals?station=...    # which trains are approaching
+GET /fleet/resolve?code=KA01ZZ4464       # generated fixture plate, typed
 GET /fleet/vehicle/{bin}/position        # JSON, one vehicle, cheap to poll
+GET /healthz
+GET /readyz
+```
+
+Ordered next, and deliberately not stubbed yet:
+
+```
+GET /fleet/metro/arrivals?station=...    # which trains are approaching
 GET /gtfs-rt/vehicle-positions           # protobuf
 GET /gtfs-rt/trip-updates                # protobuf
 ```
@@ -166,11 +175,41 @@ This governs everything in the repository.
 vehicle-tracking system and what is stubbed, line by line. Map matching is the
 largest thing absent, and it says so.
 
+## Run it
+
+The committed five-route bundle is the default, so the running service does not
+download transit data or call an external service.
+
+```sh
+docker compose up --build
+curl http://localhost:8080/readyz
+curl 'http://localhost:8080/fleet/resolve?code=BLR-04126&entry=manual'
+```
+
+For local development:
+
+```sh
+npm ci
+npm test
+npm run dev
+```
+
+All configuration is documented in [`.env.example`](.env.example). Invalid
+values are reported together at startup. The default fleet is deterministic;
+set `SIM_CLOCK` to an RFC 3339 instant to freeze every response.
+
 ## Status
 
-**Specification complete, implementation not started.** See [`SPEC.md`](SPEC.md),
-which includes a staged effort estimate and names the smallest shippable
-increment.
+**The 2.5-day bus and ticketing increment is implemented.** It includes the
+offline GTFS bundle, geometry, Damm-checked fleet identity, deterministic bus
+movement, independent duty and tracking state machines, resolve and
+single-vehicle JSON endpoints, probes, config and Docker. Metro arrivals and
+GTFS-Realtime remain in that order.
+
+The checked wire output is under [`evidence/`](evidence/), the sixteen complete
+resolve-body goldens are under [`tests/api/goldens/`](tests/api/goldens/), and
+the criterion-by-criterion result is
+[`docs/acceptance-audit.md`](docs/acceptance-audit.md).
 
 ## Attribution
 

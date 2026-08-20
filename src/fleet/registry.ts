@@ -67,7 +67,7 @@ export class FleetRegistry {
     if (this.#byBin.has(vehicle.bin)) throw new Error(`Duplicate BIN ${vehicle.bin}`)
     const parsedBin = parseBin(vehicle.bin, this.hubs)
     if (!parsedBin.ok) throw new Error(`Invalid registry BIN ${vehicle.bin}: ${parsedBin.reason}`)
-    if (vehicle.class === 'metro') {
+    if (vehicle.plates.length === 0) {
       if (vehicle.plates.length !== 0) throw new Error(`Metro vehicle ${vehicle.bin} must not have a plate`)
       this.#byBin.set(vehicle.bin, vehicle)
       return

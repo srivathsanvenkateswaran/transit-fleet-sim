@@ -65,7 +65,7 @@ export function resolveVehicle(
     matchedOn = 'plate'
   }
 
-  if (vehicle.class === 'metro') return { status: 422, body: errors.notResolvable() }
+  if (vehicle.plates.length === 0) return { status: 422, body: errors.notResolvable() }
   const observation = observationFor(world, vehicle, at)
   const plate = currentPlate(registry, vehicle)
   const verify = [{ label: 'Number plate', value: plate.display }]

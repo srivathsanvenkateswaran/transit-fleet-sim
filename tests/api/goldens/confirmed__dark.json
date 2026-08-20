@@ -1,0 +1,76 @@
+{
+  "bin": "BLR-04126",
+  "matchedOn": "bin",
+  "vehicle": {
+    "class": "bus",
+    "plate": {
+      "display": "KA-01-ZZ-1234",
+      "normalised": "KA01ZZ1234",
+      "since": "2026-02-14"
+    },
+    "plateAbsentReason": null,
+    "hub": {
+      "code": "BLR",
+      "name": "Bengaluru Central"
+    }
+  },
+  "duty": {
+    "status": "confirmed",
+    "confidence": null,
+    "route": {
+      "id": "1066",
+      "number": "500-D",
+      "name": "Central Silk Board to Hebbala Bridge",
+      "nameLocal": null
+    },
+    "headsign": "Hebbala Bridge",
+    "directionId": 0,
+    "trip": {
+      "id": "1042",
+      "startTime": "09:15:00",
+      "startDate": "20260820",
+      "startedAt": "2026-08-20T03:45:00Z"
+    },
+    "since": "2026-08-20T03:45:00Z",
+    "source": "roster",
+    "alternatives": [],
+    "reason": null
+  },
+  "tracking": {
+    "state": "dark",
+    "fixAgeSeconds": 400,
+    "observedAt": "2026-08-20T09:34:46.000Z",
+    "servedAt": "2026-08-20T09:41:26.000Z",
+    "position": {
+      "lat": 12.97843,
+      "lon": 77.64081,
+      "bearing": 118.4,
+      "speedKph": 21.6,
+      "accuracyMetres": 12
+    },
+    "progress": null,
+    "source": "simulated_gnss",
+    "reason": "no_fix_since",
+    "recoveredFromDropout": false
+  },
+  "confirmation": {
+    "required": true,
+    "prompt": "Check the bus in front of you.",
+    "verify": [
+      {
+        "label": "Number plate",
+        "value": "KA-01-ZZ-1234"
+      },
+      {
+        "label": "Route",
+        "value": "500-D"
+      }
+    ]
+  },
+  "meta": {
+    "simulated": true,
+    "seed": 1,
+    "generatedAt": "2026-08-20T09:41:26.000Z",
+    "overridden": false
+  }
+}

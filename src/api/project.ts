@@ -6,6 +6,11 @@ import type {
   WorldPort,
 } from '../world/port.js'
 
+const trackingSourceByClass = {
+  bus: 'simulated_gnss',
+  metro: 'simulated_signalling',
+} as const
+
 export function observationFor(
   world: WorldPort,
   vehicle: FleetVehicle,
@@ -58,7 +63,7 @@ function missingWorldObservation(vehicle: FleetVehicle, at: Date): VehicleObserv
       observedAt: null,
       position: null,
       progress: null,
-      source: vehicle.class === 'metro' ? 'simulated_signalling' : 'simulated_gnss',
+      source: trackingSourceByClass[vehicle.class],
       reason: 'no_device_fitted',
       recoveredFromDropout: false,
     },

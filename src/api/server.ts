@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { config } from '../config.js'
 import type { FleetRegistry } from '../fleet/registry.js'
 import type { WorldPort } from '../world/port.js'
+import { log } from '../log.js'
 import { errors } from './errors.js'
 import { health, readiness } from './health.js'
 import { resolveVehicle } from './resolve.js'
@@ -23,13 +24,25 @@ export function createApiServer(
   const tickMs = options.tickMs ?? config.simTickMs
   const predictionHorizon = options.predictionHorizonStops ?? config.predictionHorizonStops
   const server = createServer((request, response) => {
+    const startedAt = performance.now()
+    const context: Record<string, unknown> = {}
     requestSequence += 1
     const requestId = headerValue(request, 'x-request-id') ?? `sim-${requestSequence}`
     response.setHeader('x-simulated', 'true')
     response.setHeader('x-request-id', requestId)
     response.setHeader('access-control-allow-origin', cors)
     response.setHeader('content-type', 'application/json; charset=utf-8')
-    route(request, response, world, registry, tickMs, predictionHorizon)
+    response.once('finish', () => {
+      log('info', 'request', {
+        requestId,
+        method: request.method,
+        path: (request.url ?? '/').split('?')[0],
+        status: response.statusCode,
+        durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+        ...context,
+      })
+    })
+    route(request, response, world, registry, tickMs, predictionHorizon, context)
   })
   server.requestTimeout = config.requestTimeoutMs
   return server
@@ -42,6 +55,7 @@ function route(
   registry: FleetRegistry,
   tickMs: number,
   predictionHorizon: number,
+  context: Record<string, unknown>,
 ): void {
   if (request.method !== 'GET') {
     send(response, 404, errors.unknownRoute())
@@ -58,6 +72,19 @@ function route(
       world,
       registry,
     )
+    context.entry = url.searchParams.get('entry') ?? 'manual'
+    if (result.status === 200) {
+      const body = result.body as {
+        bin: string
+        matchedOn: string
+        duty: { status: string }
+        tracking: { state: string }
+      }
+      context.bin = body.bin
+      context.matchedOn = body.matchedOn
+      context.dutyStatus = body.duty.status
+      context.trackingState = body.tracking.state
+    }
     response.setHeader('cache-control', 'no-store')
     send(response, result.status, result.body)
     return
@@ -71,6 +98,16 @@ function route(
       registry,
       predictionHorizon,
     )
+    if (result.status === 200) {
+      const body = result.body as {
+        bin: string
+        duty: { status: string }
+        tracking: { state: string }
+      }
+      context.bin = body.bin
+      context.dutyStatus = body.duty.status
+      context.trackingState = body.tracking.state
+    }
     response.setHeader('cache-control', 'no-store')
     send(response, result.status, result.body)
     return

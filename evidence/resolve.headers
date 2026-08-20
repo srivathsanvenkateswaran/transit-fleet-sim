@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+x-simulated: true
+x-request-id: sim-7
+access-control-allow-origin: *
+content-type: application/json; charset=utf-8
+cache-control: no-store
+Date: Thu, 20 Aug 2026 15:36:59 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Content-Length: 1482
+

@@ -1,0 +1,7 @@
+services:
+  fleet-sim:
+    command: ["npm", "run", "dev"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./src:/app/src:ro

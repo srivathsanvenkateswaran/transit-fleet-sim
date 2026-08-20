@@ -1,0 +1,72 @@
+{
+  "bin": "BLR-04126",
+  "matchedOn": "bin",
+  "vehicle": {
+    "class": "bus",
+    "plate": {
+      "display": "KA-01-ZZ-1234",
+      "normalised": "KA01ZZ1234",
+      "since": "2026-02-14"
+    },
+    "plateAbsentReason": null,
+    "hub": {
+      "code": "BLR",
+      "name": "Bengaluru Central"
+    }
+  },
+  "duty": {
+    "status": "out_of_service",
+    "confidence": null,
+    "route": null,
+    "headsign": null,
+    "directionId": null,
+    "trip": null,
+    "since": null,
+    "source": "none",
+    "alternatives": [],
+    "reason": "withdrawn"
+  },
+  "tracking": {
+    "state": "live",
+    "fixAgeSeconds": 14,
+    "observedAt": "2026-08-20T09:41:12.000Z",
+    "servedAt": "2026-08-20T09:41:26.000Z",
+    "position": {
+      "lat": 12.97843,
+      "lon": 77.64081,
+      "bearing": 118.4,
+      "speedKph": 21.6,
+      "accuracyMetres": 12
+    },
+    "progress": {
+      "nextStop": {
+        "id": "20985",
+        "name": "Domlur",
+        "nameLocal": "ದೊಮ್ಮಲೂರು",
+        "sequence": 14
+      },
+      "currentStatus": "IN_TRANSIT_TO",
+      "distanceAlongRouteMetres": 8241.5,
+      "routeLengthMetres": 21903
+    },
+    "source": "simulated_gnss",
+    "reason": null,
+    "recoveredFromDropout": false
+  },
+  "confirmation": {
+    "required": true,
+    "prompt": "Check the number plate. The route is not currently known.",
+    "verify": [
+      {
+        "label": "Number plate",
+        "value": "KA-01-ZZ-1234"
+      }
+    ]
+  },
+  "meta": {
+    "simulated": true,
+    "seed": 1,
+    "generatedAt": "2026-08-20T09:41:26.000Z",
+    "overridden": false
+  }
+}

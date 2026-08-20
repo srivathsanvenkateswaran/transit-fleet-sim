@@ -28,6 +28,19 @@ describe('duty state machine', () => {
     }
   })
 
+  it('sets confidence only for inferred duty and inside its configured range', () => {
+    for (const status of ['confirmed', 'inferred', 'unknown', 'out_of_service'] as const) {
+      const profile = forcedDutyProfile(status)
+      const state = createDutyState('BLR-04126', START, '20260820', profile)
+      if (status === 'inferred') {
+        expect(state.confidence).toBeGreaterThanOrEqual(profile.inferredConfidenceMin)
+        expect(state.confidence).toBeLessThanOrEqual(profile.inferredConfidenceMax)
+      } else {
+        expect(state.confidence).toBeNull()
+      }
+    }
+  })
+
   it('drops a confirmed roster to inferred or unknown without a device input', () => {
     const profile = { ...forcedDutyProfile('confirmed'), swapRatePerDay: 1_000_000 }
     const state = createDutyState('BLR-04126', START, '20260820', profile)

@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build-bundle": "tsx scripts/build-bundle.ts",
+    "generate-goldens": "tsx scripts/generate-goldens.ts",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",
     "start": "node dist/src/index.js",

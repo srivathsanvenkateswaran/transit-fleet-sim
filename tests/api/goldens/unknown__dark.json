@@ -1,0 +1,62 @@
+{
+  "bin": "BLR-04126",
+  "matchedOn": "bin",
+  "vehicle": {
+    "class": "bus",
+    "plate": {
+      "display": "KA-01-ZZ-1234",
+      "normalised": "KA01ZZ1234",
+      "since": "2026-02-14"
+    },
+    "plateAbsentReason": null,
+    "hub": {
+      "code": "BLR",
+      "name": "Bengaluru Central"
+    }
+  },
+  "duty": {
+    "status": "unknown",
+    "confidence": null,
+    "route": null,
+    "headsign": null,
+    "directionId": null,
+    "trip": null,
+    "since": null,
+    "source": "none",
+    "alternatives": [],
+    "reason": "ambiguous_trip_match"
+  },
+  "tracking": {
+    "state": "dark",
+    "fixAgeSeconds": 400,
+    "observedAt": "2026-08-20T09:34:46.000Z",
+    "servedAt": "2026-08-20T09:41:26.000Z",
+    "position": {
+      "lat": 12.97843,
+      "lon": 77.64081,
+      "bearing": 118.4,
+      "speedKph": 21.6,
+      "accuracyMetres": 12
+    },
+    "progress": null,
+    "source": "simulated_gnss",
+    "reason": "no_fix_since",
+    "recoveredFromDropout": false
+  },
+  "confirmation": {
+    "required": true,
+    "prompt": "Check the number plate. The route is not currently known.",
+    "verify": [
+      {
+        "label": "Number plate",
+        "value": "KA-01-ZZ-1234"
+      }
+    ]
+  },
+  "meta": {
+    "simulated": true,
+    "seed": 1,
+    "generatedAt": "2026-08-20T09:41:26.000Z",
+    "overridden": false
+  }
+}
