@@ -1456,3 +1456,529 @@ still say `ready`. The TTL makes the world self-healing.
   braces with `meta.simulated`, and it survives a consumer that only logs
   headers.
 - Every response carries `X-Request-Id`, echoed from the request when present.
+
+---
+
+## 8. The simulation engine
+
+### 8.1 The world tick
+
+One timer, one function, no queues.
+
+```
+every SIM_TICK_MS (default 1000):
+  now = clock()                       # section 8.8
+  for each vehicle:
+    advanceCursor(vehicle, now)       # 8.2, 8.3
+    maybeEmitFix(vehicle, now)        # 8.5, 8.6
+    maybeChangeDuty(vehicle, now)     # 8.7
+  dispatchNewTrips(now)               # 8.4
+  retireFinishedTrips(now)
+  expireScenarioOverrides(now)
+  lastTickAt = now
+```
+
+The whole world is in memory. A 54-vehicle fleet on five bus routes and three
+metro lines ticks in well under a millisecond, and `/readyz` publishes
+`tickLagMs` so a fleet size that outgrows one tick is visible rather than
+silently drifting.
+
+**Requests never advance the world.** A handler reads the current state and
+projects it. If `SIM_TICK_MS` is raised to 10000 for a slow demo, responses do
+not become stale-by-construction; they become correctly stale, and
+`fixAgeSeconds` says so.
+
+### 8.2 A vehicle is a cursor on a polyline
+
+The core abstraction, and it is small.
+
+```
+Cursor
+  shapeId              : string       which polyline
+  distanceMetres       : number       how far along it
+  directionId          : 0 | 1        which way the shape runs
+  dwellUntil           : epoch | null non-null while stopped at a stop
+```
+
+The shape is a list of `(lat, lon, cumulativeDistanceMetres)` points, built once
+at load from `shapes.txt` (`shape_pt_lat`, `shape_pt_lon`, `shape_pt_sequence`,
+`shape_dist_traveled`) or from the metro topology (section 9.2).
+
+To place a vehicle:
+
+1. Binary-search the cumulative-distance array for the segment containing
+   `distanceMetres`.
+2. Linearly interpolate `lat`/`lon` within that segment.
+3. `bearing` is the initial bearing of that segment, forward-azimuth, in degrees
+   clockwise from true north.
+
+**Distances are geodesic, computed with the haversine formula on a mean Earth
+radius of 6 371 008.8 m.** Bengaluru spans about 40 km; haversine error at that
+scale is metres, far inside the positional noise the device model adds. Do not
+reach for Vincenty.
+
+**`shape_dist_traveled` in the bundled BMTC feed is present and in metres**, and
+is used directly rather than recomputed. Section 14 asserts, at load, that it is
+monotonically non-decreasing per shape and that its final value is within 5% of
+the sum of the haversine segment lengths - a shape that fails either is rejected
+at startup with the shape id named, because a bad `shape_dist_traveled` produces
+buses that teleport and it is far better to find that at boot.
+
+**Stop positions along the shape.** Each stop in the trip's `stop_times`
+sequence is projected once, at load, onto its nearest point on the shape, giving
+a `stopDistanceMetres`. The cursor's next stop is then the first entry whose
+`stopDistanceMetres > distanceMetres` - a comparison of two numbers, no
+geometry at request time.
+
+`UNRESOLVED:` whether the community BMTC feed's `shape_dist_traveled` is derived
+from the same source geometry as its stop coordinates. If a stop projects more
+than `GEOMETRY_MAX_STOP_OFFSET_METRES` (default 150) from its shape, the loader
+logs a warning naming the route and stop and keeps going. Failing the build on
+it would make the project un-runnable on a feed refresh, and the consequence is
+cosmetic: a stop marker slightly off the drawn line.
+
+### 8.3 Speed, dwell, and why the two modes differ
+
+**Bus.** Speed is drawn per vehicle at dispatch and re-drawn on each segment:
+
+```
+speedKph = clamp(
+    normal(BUS_SPEED_KPH_MEAN, BUS_SPEED_KPH_SD) * peakFactor(now),
+    BUS_SPEED_KPH_MIN, BUS_SPEED_KPH_MAX )
+```
+
+Defaults `mean 17`, `sd 4`, `min 5`, `max 45`. **17 km/h is not arbitrary**:
+Bengaluru's measured city-wide average traffic speed is about 17.4 km/h, and
+about 18 km/h in rush hour by another index.[^blr-speed] A bus is at best that
+fast between stops and slower overall, which is what the dwell model adds.
+
+`peakFactor(now)` is `BUS_PEAK_SPEED_FACTOR` (default `0.7`) inside
+`BUS_PEAK_WINDOWS` (default `07:00-10:00,17:00-21:00` local) and `1.0` outside.
+
+At each stop the cursor sets `dwellUntil = now + max(0, normal(
+BUS_DWELL_SECONDS_MEAN, BUS_DWELL_SECONDS_SD))`, defaults `20` and `8`.
+
+**Metro.** Speed follows a trapezoidal profile between stations rather than a
+constant, because a train visibly accelerates, cruises and brakes and a constant
+speed produces a train that arrives at a platform at 35 km/h:
+
+```
+accelerate at METRO_ACCEL_MPS2 (default 1.0) to min(METRO_CRUISE_KPH, v_max_for_gap)
+cruise
+decelerate at METRO_DECEL_MPS2 (default 1.1) to rest at the platform
+dwell METRO_DWELL_SECONDS (default 25, sd 4)
+```
+
+`METRO_CRUISE_KPH` defaults to `60`, inside the system's 80 km/h maximum, and
+the resulting end-to-end average lands near the published 35 km/h average
+once dwells are counted.[^nammametro] Where a station gap is too short to reach
+cruise, the profile degenerates to accelerate-then-brake and the peak speed is
+whatever the gap allows.
+
+**This is the smaller of the two mode differences and it is worth having anyway**,
+because it is what makes a metro ETA legitimately tighter than a bus ETA rather
+than tighter by fiat.
+
+### 8.4 Headways and dispatch
+
+**Metro runs to a headway. BMTC does not, and the simulator must not pretend it
+does.**
+
+**Metro dispatch** is a clock. A trip departs each terminal every
+`METRO_HEADWAY_SECONDS_PEAK` (default 480, eight minutes) inside the peak
+windows and `METRO_HEADWAY_SECONDS_OFFPEAK` (default 720) outside, with
+`METRO_HEADWAY_JITTER_SECONDS` (default 20) of noise so trains do not run in
+lockstep. Per-line overrides exist: `METRO_HEADWAY_SECONDS_PEAK__YELLOW` and so
+on. Defaults are grounded in reported service: Purple and Green around eight
+minutes at peak and ten to fifteen off-peak, and the Yellow Line worked down to
+nine minutes at peak and fourteen off-peak as trainsets arrived through
+2026.[^metro-headway][^yellow-headway] The Yellow Line's separate default is
+there because it is genuinely the sparser line and a demo showing three
+identical lines would be flattering the system.
+
+The train count per line then falls out of the headway and the round-trip time
+rather than being configured directly, which is how a real operator thinks about
+it:
+
+```
+trains = ceil( (2 * lineRunTimeSeconds + 2 * turnaroundSeconds) / headwaySeconds )
+```
+
+`METRO_TRAINS_PER_LINE` exists as an override for a demo that wants a specific
+number, and is unset by default.
+
+**Bus dispatch** is `BUSES_PER_ROUTE` (default 6) vehicles per route, spread
+evenly over the round trip at start-up and thereafter running continuously with
+a `BUS_TERMINAL_LAYOVER_SECONDS` (default 300) turnaround. **This is a
+simplification and section 13 lists it as one.** Real BMTC service is timetabled
+per trip, bunches heavily, and varies enormously by route. Modelling the real
+timetable would mean parsing `stop_times` departure times that the feed's own
+maintainers describe as "particularly unreliable" for timings,[^bmtc-gtfs] so
+the simulator uses an even spread and does not claim it is a schedule. **The
+bunching that a real corridor shows emerges anyway**, from the per-vehicle speed
+draw and dwell variance, which is the honest way to get it.
+
+### 8.5 The device model: staleness, dropouts, coverage
+
+This is the section that makes the simulator worth building. Four independent
+mechanisms, each an environment variable, each demonstrable on its own.
+
+**1. Coverage.** At fleet generation, each vehicle independently gets a device
+with probability `BUS_COVERAGE_SHARE` (default `0.75`) or
+`METRO_COVERAGE_SHARE` (default `1.0`). A vehicle without one is
+`tracking.state: untracked` **forever**; it never reports, never appears in
+`vehicle-positions`, and its `tracking.position` is `null` with
+`reason: "no_device_fitted"`.
+
+Coverage is drawn from the seed, so **the same BINs are untracked across
+restarts**, which matters: a demo that shows an untracked bus needs that bus to
+still be untracked on the second take.
+
+**2. Fix interval and staleness.** A device with a fix emits at
+
+```
+nextFixAt = lastFixAt
+          + BUS_FIX_INTERVAL_SECONDS                       (default 20)
+          + uniform(-BUS_FIX_JITTER_SECONDS, +BUS_FIX_JITTER_SECONDS)   (default 10)
+```
+
+giving 10-30 second intervals, which is the range real AIS-140 devices report
+in.[^ais140-freq] **The vehicle keeps moving between fixes.** The published
+position is the one taken at `lastFixAt`, and `fixAgeSeconds` is how far behind
+it is. This is not an approximation of staleness; it is staleness, produced the
+same way the real thing produces it.
+
+`tracking.state` is then `live` while `fixAgeSeconds <= BUS_STALE_AFTER_SECONDS`
+(default 90, matching the GTFS-RT best-practice ceiling on data
+age[^gtfsrt-bp]), `stale` up to `BUS_DARK_AFTER_SECONDS` (default 300), `dark`
+beyond.
+
+**3. Dropouts.** Tunnels, dead SIMs, unpaid data, a device switched off at a
+depot. Modelled as a Poisson process at `BUS_DROPOUT_RATE_PER_HOUR` (default
+`1.5`) per vehicle-hour. A dropout suppresses fixes for
+`uniform(BUS_DROPOUT_MIN_SECONDS, BUS_DROPOUT_MAX_SECONDS)`, defaults `60` and
+`420`, so a bus goes `live -> stale -> dark -> live` over a few minutes.
+
+**On reconnection, a real store-and-forward device flushes its buffer**, and the
+server receives a burst of backdated fixes at once. The simulator models the
+observable consequence: on the first fix after a dropout, the vehicle's position
+jumps to where it actually is now, and the response carries
+`tracking.recoveredFromDropout: true` for one fix interval. It does **not**
+replay the intermediate fixes into the feed, because GTFS-Realtime is a snapshot
+of current state and has nowhere to put them.
+
+Metro uses `METRO_DROPOUT_RATE_PER_HOUR` (default `0.05`), thirty times rarer,
+because a train that loses its position on a CBTC line is an incident rather
+than a Tuesday.
+
+**4. Positional noise.** A bus fix gets Gaussian cross-track and along-track
+error at `BUS_GPS_NOISE_METRES` (default 12, one standard deviation), and
+`accuracyMetres` reports it. **This is the one place the simulator deliberately
+puts a vehicle off its own polyline**, and it is what a consuming app's map
+rendering needs to be robust against.
+
+Metro gets `METRO_POSITION_NOISE_METRES` (default `2`) applied **along track
+only**. A signalling system reports block occupancy; the uncertainty is *where
+in the block*, not *which side of the rails*. A train never leaves its line, and
+a consuming app should never have to draw one that has.
+
+### 8.6 The signalling model for metro
+
+Where the bus model asks *did a packet arrive*, the metro model asks *is the
+train in a known block*.
+
+- Position updates every `METRO_FIX_INTERVAL_SECONDS` (default `5`), unjittered.
+  A signalling system reports on a cycle, not when a modem manages to connect.
+- `tracking.source` is `simulated_signalling`, not `simulated_gnss`, and a
+  consuming app may key off it.
+- `accuracyMetres` reflects block granularity rather than satellite geometry:
+  `METRO_BLOCK_LENGTH_METRES / 2`, default block `200`, so `100` - but *along
+  the line only*, which is why the cross-track noise is zero.
+- `STALE_AFTER` is `METRO_STALE_AFTER_SECONDS` (default 30) and `DARK_AFTER` is
+  `METRO_DARK_AFTER_SECONDS` (default 120). A five-second cycle that has not
+  reported in thirty seconds is already worth flagging.
+
+**No map matching is skipped here, because none is required even in reality.**
+That is the honest version of "we skipped it": for buses it is a real stage we
+are not implementing; for metro it is a stage that does not exist.
+
+### 8.7 Duty, and where roster uncertainty comes from
+
+**The BIN-to-duty mapping is the least reliable thing in real operations**, and
+`duty.status: inferred` and `unknown` exist to represent exactly that. Buses get
+swapped mid-day, a vehicle fails and a spare takes its block, a driver signs on
+to the wrong duty, and the operator's roster is a document about the morning.
+
+At dispatch, a bus draws its `duty.status` from a four-way distribution:
+
+```
+DUTY_CONFIRMED_SHARE        default 0.60
+DUTY_INFERRED_SHARE         default 0.25
+DUTY_UNKNOWN_SHARE          default 0.10
+DUTY_OUT_OF_SERVICE_SHARE   default 0.05
+```
+
+The four must sum to 1.0 within 1e-6 or the process **refuses to start**, naming
+the four values and their sum. Silently normalising them would hide a typo in a
+deployment's environment for weeks.
+
+- **`confirmed`**: `source: "roster"`, no `confidence`.
+- **`inferred`**: `source: "position_match"`, `confidence` drawn from
+  `uniform(DUTY_INFERRED_CONFIDENCE_MIN, MAX)`, defaults `0.55` and `0.95`,
+  rounded to two decimals.
+- **`unknown`**: `source: "none"`, `route` and `trip` `null`, `reason` drawn
+  from `ambiguous_trip_match` / `off_pattern` / `roster_swapped`. When the reason
+  is `ambiguous_trip_match`, `alternatives[]` carries one or two real candidate
+  routes from the loaded set, with confidences that do not sum to 1 - because a
+  real matcher's scores do not either.
+- **`out_of_service`**: the vehicle still moves, on a shape, because a
+  deadheading bus is on a road. It is absent from `trip-updates` and present in
+  `vehicle-positions` with no `trip` set.
+
+**Mid-day swaps** fire at `DUTY_SWAP_RATE_PER_DAY` (default `0.15`) per vehicle
+per service day. A swap:
+
+1. Leaves `tracking` **completely untouched**. The device does not know a swap
+   happened.
+2. Moves `duty.status` from `confirmed` to `inferred` or `unknown`.
+3. Sets `duty.reason: "roster_swapped"` and updates `duty.since`.
+
+**This is the demo moment for section 5**, and `/admin/scenario` can force it.
+
+**Metro duty** is drawn from `METRO_DUTY_CONFIRMED_SHARE` (default `0.99`) with
+the remainder `inferred`; `unknown` and `out_of_service` are not produced on
+line, and `METRO_DUTY_SWAP_RATE_PER_DAY` defaults to `0`. A train that is out of
+service is in a depot, and a depot is not on the simulated line.
+
+### 8.8 Determinism, and why there is no database
+
+**The world is a pure function of `(SIM_SEED, clock)`.** There is no persisted
+state, no volume, and no migration. A restart at the same wall-clock second
+reproduces the same fleet, the same coverage draw, the same duty assignment.
+
+Achieved with one rule: **every random draw is seeded by a hash of the seed, the
+BIN, a purpose string, and where relevant a time bucket.**
+
+```
+rand(seed, bin, purpose, bucket) = xoshiro128** seeded with
+    fnv1a(`${seed}|${bin}|${purpose}|${bucket}`)
+```
+
+- Coverage: `rand(seed, bin, "coverage", 0)`. No bucket - it is drawn once and
+  never changes.
+- Dropout in a given minute: `rand(seed, bin, "dropout", floor(epoch/60))`.
+  Recomputable from nothing but the clock, which is why no dropout state has to
+  be stored.
+- Duty draw: `rand(seed, bin, "duty", serviceDate)`.
+
+`Math.random()` must not appear anywhere in `src/sim/`. Section 14 makes that a
+lint rule, because one stray call makes the whole demo unreproducible and the
+symptom - "it worked when I recorded it" - is miserable to chase.
+
+**`SIM_CLOCK`** controls time:
+
+| Value | Behaviour |
+|---|---|
+| `system` (default) | Wall clock. |
+| An RFC 3339 instant | **The world is frozen at that instant.** Every response is identical, forever. This is what golden-file tests and a reproducible screenshot use. |
+| `offset:<seconds>` | Wall clock shifted, for demoing peak-hour behaviour at 11am. |
+
+`SIM_SPEEDUP` (default `1`) multiplies elapsed time so a demo can watch a bus
+cover a route in two minutes. It multiplies **simulated** elapsed time only;
+`fixAgeSeconds` and every published timestamp stay in real seconds, because a
+consuming app's staleness logic must be exercised against real numbers.
+
+---
+
+## 9. Geometry: where it comes from, and how a stranger runs this
+
+### 9.1 Bus geometry: the community BMTC GTFS feed
+
+Source: **`Vonter/bmtc-gtfs`**, an unofficial community GTFS dataset for BMTC,
+scraped from the Namma BMTC app and published as `gtfs/bmtc.zip`.[^bmtc-gtfs]
+It is the same source the consuming transit app uses, which matters: **the
+simulator's buses must run on the same polylines the app draws**, or every
+demonstration shows a bus beside the route rather than on it.
+
+**The size problem is real.** As of the July 2026 snapshot:
+
+| | |
+|---|---|
+| `gtfs/bmtc.zip`, compressed | **44 MB** |
+| Uncompressed | **202 MB** |
+| of which `shapes.txt` | 112 MB (2 447 719 points) |
+| of which `stop_times.txt` | 80 MB (1 519 120 rows) |
+| Routes / trips / stops | 4 381 / 56 855 / 9 887 |
+| Whole repository including raw archives | ~1.7 GB |
+
+Making a first-time contributor download 44 MB and unpack 202 MB to run a
+simulator of six buses is a bad trade, and making the Docker image carry it is
+worse.
+
+**So a subset is bundled, and it is small.** `scripts/build-bundle.ts` extracts
+the routes named in `BUS_ROUTES` and everything they reference. Measured against
+the real feed for the five default routes - `500-D`, `500-A`, `G-4`, `335-E`,
+`401-K`, all genuine BMTC routes:
+
+| | |
+|---|---|
+| Routes | 5 |
+| Trips | 716 |
+| Shapes / shape points | 10 / 4 075 |
+| Distinct stops | 403 |
+| `stop_times` rows | 36 853 |
+| **Bundle, uncompressed** | **~2.2 MB** |
+| **Bundle, gzipped in the repository** | **~0.5 MB** |
+
+That is committed. `git clone && docker compose up` works with **no download,
+no Overpass call and no network access at all**, which is the bar: a stranger
+landing on the repository cold gets a running simulator in one command.
+
+**Three loading modes**, `GTFS_SOURCE`:
+
+| Value | Behaviour |
+|---|---|
+| `bundled` (default) | Read `data/bundle/`. No network. |
+| `path` | Read a full GTFS directory or zip at `GTFS_PATH`. For someone who already has the feed - including the consuming app, which does. |
+| `url` | Download `GTFS_URL` at boot, cache under `GTFS_CACHE_DIR`. Off by default; a service that fetches 44 MB on every container start is a service that fails on a bad day. |
+
+**Regenerating the bundle** is `npm run build-bundle`, which downloads the
+upstream zip, extracts, and rewrites `data/bundle/`. It records
+`data/bundle/SOURCE.md` with the upstream URL, the commit SHA, the `feed_version`
+from `feed_info.txt`, the fetch date, and the exact `BUS_ROUTES` list used.
+**The bundle is data, and undated data is a liability**; the `SOURCE.md` is what
+lets someone six months later tell whether the bundle is stale.
+
+**Licence.** `Vonter/bmtc-gtfs` **has no `LICENSE` file**. It carries a
+`CITATION.cff` naming Vivek Matthew as the author, an `attributions.txt` inside
+the feed naming BMTC as operator and authority, and a `feed_info.txt` naming
+Vonter as publisher. Absent an explicit licence the default is all rights
+reserved. Consequences, and they are not optional:
+
+- **The bundled subset is attributed in `data/bundle/SOURCE.md`, in
+  `THIRD_PARTY_NOTICES.md` and in the README**, with the upstream URL and the
+  `CITATION.cff` citation reproduced.
+- **`THIRD_PARTY_NOTICES.md` states plainly that the upstream repository carries
+  no licence file**, so nobody downstream assumes MIT by proximity to this
+  repository's own MIT licence.
+- **An issue asking upstream to add a licence is opened**, and its URL recorded
+  in `THIRD_PARTY_NOTICES.md`. This costs five minutes and is the difference
+  between using someone's work and taking it.
+- **`GTFS_SOURCE=url` exists as the escape hatch.** If the licence question is
+  ever answered unfavourably, deleting `data/bundle/` leaves a project that still
+  runs, one download later. **This is why the bundle is a cache and not a
+  hard dependency**, and no code may assume it is present.
+
+### 9.2 Metro geometry: OpenStreetMap route relations
+
+**Not the vendor file, and there is a scar behind that.** The consuming project
+originally took Namma Metro station order from a vendor JSON dataset, and that
+order was representational rather than routable: it **reversed a six-station run
+of the Purple Line, spliced three Green Line stations into the middle of Purple,
+and omitted four stations entirely**. Because the planner walked stations in
+stored order, the result was wrong journeys and wrong travel times, not a
+cosmetic map defect. That project now derives station order and coordinates from
+OpenStreetMap and gates on `scripts/check-metro-topology.ts`.
+
+**A simulator inherits the problem in a sharper form.** A train is a cursor
+walking a station list; a reversed run makes it travel backwards through six
+real stations while reporting perfect confidence. So this project takes the same
+source and the same discipline.
+
+**Source.** OSM models a metro line as a `type=route` relation with
+`route=subway`, whose members are **ordered**.[^osm-route] One Overpass query
+over the city bounding box returns the relations and their member nodes:
+
+```
+[out:json][timeout:600];
+(
+  relation["type"="route"]["route"~"subway|light_rail"]({{bbox}});
+);
+(._;>;);
+out body;
+```
+
+Relations carrying a `state` tag (proposed, under construction) are excluded:
+OSM models only built infrastructure as an open route relation, and the Pink and
+Blue lines have none. Lines are matched to ids by their OSM `ref` tag -
+`Purple`, `Green`, `Yellow`.
+
+**Station order comes from OSM member order and is never re-sorted by
+coordinate.** Re-sorting is exactly how a line that doubles back gets silently
+reversed.
+
+**This is also bundled.** `scripts/fetch-metro-topology.ts` writes
+`data/bundle/metro-topology.json` and it is **committed**, for the same reason as
+the bus subset and one more: Overpass is a shared public service with rate
+limits and variable availability, and a project whose `docker compose up`
+depends on it is a project that fails on someone else's bad afternoon.
+
+```jsonc
+// data/bundle/metro-topology.json
+{
+  "source": "openstreetmap",
+  "fetchedAt": "2026-08-20",
+  "overpassEndpoint": "https://overpass-api.de/api/interpreter",
+  "lines": [
+    {
+      "id": "purple", "ref": "Purple", "name": "Purple Line",
+      "nameLocal": "ನೇರಳೆ ಮಾರ್ಗ", "colour": "#9C27B0",
+      "osmRelationId": 0000000,
+      "stations": [
+        { "id": "MTR-PPL-001", "name": "Challaghatta", "nameLocal": "ಚಳ್ಳಘಟ್ಟ",
+          "lat": 12.9, "lon": 77.4, "platforms": ["1", "2"],
+          "isInterchange": false, "interchangeWith": [] }
+      ]
+    }
+  ]
+}
+```
+
+**The polyline between stations.** OSM route relations carry the track ways as
+well as the station nodes, so the geometry is real track, not a straight line
+between platforms. Where a relation's way members cannot be stitched into a
+continuous line, **the loader falls back to a straight line between consecutive
+stations and records `"geometry": "interpolated"` on that segment**, which is
+surfaced in `/fleet/routes`. A straight line between two stations 900 m apart is
+a small lie; silently claiming it is the real alignment is a larger one.
+
+**The integrity gate.** `scripts/check-metro-topology.ts` runs in CI and refuses
+a topology where:
+
+1. Any line has fewer stations than its known operational count - Purple 37,
+   Green 32, Yellow 16 as of the Yellow Line's opening on 11 August
+   2025.[^nammametro][^yellowline]
+2. Consecutive stations are more than `METRO_MAX_STATION_GAP_METRES` (default
+   4000) apart, which is what an omitted station looks like.
+3. The sequence of inter-station bearings reverses by more than 150 degrees
+   without a corresponding real terminus, which is what a spliced or reversed
+   run looks like.
+4. A station id appears twice on one line.
+
+**This gate is not optional and it is the reason to trust the metro
+simulation at all.** Every one of those four checks corresponds to a defect the
+consuming project actually shipped once.
+
+**Licence.** OpenStreetMap data is licensed under the **Open Database Licence
+(ODbL) 1.0**, and its use requires attributing "© OpenStreetMap
+contributors".[^osm-copyright] The attribution appears in the README, in
+`THIRD_PARTY_NOTICES.md`, and in `data/bundle/SOURCE.md`. ODbL's share-alike
+obligation attaches to derived *databases*: `data/bundle/metro-topology.json` is
+a derived database and is published in this repository under **ODbL**, stated in
+`THIRD_PARTY_NOTICES.md`, while the source code stays MIT. Section 17.
+
+`UNRESOLVED:` the OSM relation ids for the three lines. They are read at fetch
+time by `ref` tag and written into `metro-topology.json`, so the build does not
+need them written down here; they are recorded in the generated file for
+traceability.
+
+### 9.3 Kannada names
+
+The bundled BMTC feed ships `translations.txt` (1.3 MB) carrying Kannada names
+for stops, and the metro topology carries `nameLocal` per station. Both are
+loaded and both are emitted as `nameLocal`, `null` where absent.
+
+**This is not decoration.** The consuming app carries Kannada station names
+through to the rider, and a tracking service that drops them forces the app to
+re-join against another dataset to put a name on a stop it just got a position
+for.
