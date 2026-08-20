@@ -2331,3 +2331,305 @@ services:
 
 `docker-compose.override.yml.example` ships a development variant that mounts
 `./src` and runs `tsx watch`, and is git-ignored once copied.
+
+---
+
+## 13. Fidelity, stated honestly
+
+This table is published, not buried. It belongs on screen in the demo, and it is
+mirrored standalone at `docs/fidelity.md`.
+
+### 13.1 Faithful to a real AVL system
+
+| Aspect | What is real | Where |
+|---|---|---|
+| **Route geometry** | Real BMTC shapes and stop sequences from the community GTFS feed; real Namma Metro station order and coordinates from OSM route relations. A simulated bus is on the same polyline the consuming app draws. | §9 |
+| **Stop sequences and identifiers** | Real GTFS `route_id`, `trip_id`, `stop_id`, `stop_sequence`, `shape_id`. A consumer joining this feed against the static feed gets hits. | §9.1 |
+| **Kannada names** | Real, from the feed's `translations.txt` and from OSM. | §9.3 |
+| **GTFS-Realtime encoding** | A genuine `transit_realtime.FeedMessage` in protobuf, from the canonical `.proto`, `gtfs_realtime_version` `2.0`, `FULL_DATASET`. Any conforming consumer parses it. | §7.2 |
+| **Fix staleness** | **Structurally real.** The vehicle moves between fixes and the published position is the one taken at the last fix. `vehicle.timestamp` is the measurement time, per the spec's own definition, so a consumer computes age exactly as it would in production. | §7.2, §8.5 |
+| **Dropouts** | Real in shape: a vehicle stops reporting for minutes, the last known position ages through `stale` into `dark`, and a later fix restores it. | §8.5 |
+| **Partial coverage** | **Real in kind.** A configurable share of the fleet has no device and never appears in the feed, exactly as an under-instrumented real fleet behaves. This is the case most simulators omit. | §8.5 |
+| **Prediction uncertainty** | Real in mechanism. `StopTimeEvent.uncertainty` is populated on every event, `NO_DATA` past the horizon, both as the specification defines them. | §7.3 |
+| **Roster uncertainty** | Real in kind. `duty.status` distinguishes a rostered duty from an inferred one from no idea, and mid-day swaps degrade a confirmed duty without touching the tracking state. | §8.7 |
+| **The two-state-machine split** | Real, and arguably more explicit than most production systems manage. | §5 |
+| **Vehicle identity separation** | Real, and it matches GTFS-RT's own `VehicleDescriptor.id` / `label` / `license_plate` split. | §2.2, §4 |
+| **The metro/bus fidelity contrast** | Real. A signalled metro genuinely is better tracked than a GPS-tracked bus fleet, and the simulator's two profiles reflect that rather than inventing symmetry. | §2.3 |
+| **AIS-140 fix cadence** | The 10-30 second interval is the range real Indian VLTDs report in. | §2.1 |
+
+### 13.2 Stubbed, simulated, or absent
+
+| Aspect | What is not real | Consequence |
+|---|---|---|
+| **Every vehicle** | No BIN, plate or position corresponds to anything. Fixture plates use the `ZZ` series precisely so they cannot collide with a real registration. | Nothing here is evidence about any real bus. |
+| **Map matching** | Not implemented at all. A simulated bus is on the polyline by construction, so there is no fix to snap. | **The largest piece of real AVL work absent from this project.** A consuming app tested only against this will not have seen the artefacts a real matcher produces: a bus briefly on the wrong parallel road, a fix rejected as off-pattern, a position that snaps backwards. |
+| **The device wire protocol** | No AIS-140 packet framing, no TCP session handling, no NVLT backhaul. | The observable consequence of store-and-forward is modelled; the bytes are not. |
+| **Store-and-forward replay** | On reconnection the position jumps to current and the intervening fixes are discarded. | A real feed may briefly show a vehicle at a backdated position. This one does not. |
+| **Prediction model** | The band is `base + perStop * n`, linear and uncalibrated. Real prediction error grows super-linearly with intervening signals, stops and turns. | The band is honest in *kind* and wrong in *shape*. A consuming app must not tune thresholds against these exact numbers. |
+| **Prediction skill** | The "prediction" knows the ground truth, because the simulator generated both. It is a true value plus a stated band, not an estimate from observations. | It cannot be wrong in the way a real prediction is wrong. A real feed will occasionally predict 3 minutes for a bus that takes 11. |
+| **Bus dispatch** | Even spread over the round trip, not the published timetable. The feed's own maintainers describe its timings as unreliable, so a real timetable was not used. | Bunching emerges from speed and dwell variance rather than from real schedule adherence. Headway distributions will not match a real corridor. |
+| **Duty confidence** | `duty.confidence` is drawn from a uniform distribution. It is not derived from anything. | A UI may be built against it; a threshold must not be tuned to it. |
+| **Speed model** | One draw per segment from a normal distribution, with a flat peak factor. No junctions, no signals, no incidents, no rain. | Journey times are plausible, not predictive. |
+| **Metro track geometry** | Real where OSM way members stitch into a continuous line; a straight line between stations where they do not, flagged `geometry: "interpolated"`. | A small number of segments are drawn straight. Surfaced, not hidden. |
+| **Occupancy, alerts, fares** | Absent. `occupancy_status` is never populated, no `Alert` entity is produced. | An app cannot demonstrate crowding or disruption against this service. |
+| **Metro out-of-service stock** | Not simulated. A train is on the line or does not exist. | `duty.status: out_of_service` is a bus-only state in practice. |
+| **The static GTFS feed** | This service does not publish one. It publishes realtime that references a static feed the consumer must already have. | A consumer must load the same bundled subset, or the full upstream feed, to resolve `stop_id` and `trip_id`. `docs/consuming.md` says so. |
+| **Real-world time coverage** | Vehicles run whenever the process is up, ignoring `calendar.txt`. There is no last bus and no depot-in hour. | A demo at 3am shows a full service. `SIM_CLOCK` is the workaround. |
+| **Scale** | Tens of vehicles on five routes and three lines. BMTC's real fleet passed 7 000 buses in 2025.[^bmtc-fleet] | Nothing here exercises a consumer's behaviour on a feed with thousands of entities. |
+
+**The one-sentence version, for a slide:** *the geometry, the identifiers, the
+encoding, and every way the tracking fails are real; the vehicles, the movement,
+and the skill of the predictions are not, and the fidelity table says which is
+which.*
+
+---
+
+## 14. Acceptance criteria, and the tests
+
+### 14.1 What a passing run looks like
+
+`docker compose up` on a clean clone, with no network access, then
+`make demo`:
+
+```
+[boot] geometry: bundled          5 bus routes, 10 shapes, 403 stops, 716 trips
+[boot] geometry: metro topology   3 lines, 85 stations, 0 interpolated segments
+[boot] fleet: 30 buses (23 tracked, 7 untracked), 24 trains (24 tracked)
+[boot] seed=1  listening on 0.0.0.0:8080
+[ready] tick 1000ms, lag 3ms
+
+GET /fleet/resolve?code=BLR-04127&entry=scan
+  200  bin BLR-04127  matchedOn=bin  plate KA-01-ZZ-1234 (since 2026-02-14)
+       duty  confirmed  500-D  "Hebbala Bridge"  trip 1042
+       track live  age 14s  12.97843,77.64081  next Domlur (seq 14)
+       confirmation.required = false          <- scanned
+
+GET /fleet/resolve?code=ka01zz1234
+  200  bin BLR-04127  matchedOn=plate
+       confirmation.required = true           <- typed
+       verify: Number plate KA-01-ZZ-1234 | Route 500-D
+
+GET /fleet/resolve?code=BLR-04128
+  400  bad_check_character                    <- one digit off. No registry hit.
+
+GET /fleet/resolve?code=BLR-99999
+  404  unknown_bin
+
+GET /fleet/resolve?code=BLR-01185
+  200  duty out_of_service (withdrawn)        <- real BIN, no duty today. NOT a 404.
+
+GET /fleet/resolve?code=MTR-00187
+  422  not_a_resolvable_code  class=metro  seeInstead=/fleet/metro/arrivals
+
+GET /fleet/resolve?code=BLR-70153
+  200  duty  confirmed  335-E                 <- cell B of section 5.3
+       track untracked  position=null  reason=no_device_fitted
+
+GET /fleet/metro/arrivals?station=MTR-PPL-018&towards=MTR-PPL-037
+  200  Purple Line -> Whitefield (Kadugodi)  platform 2
+       eta 214s +/- 20s (tracked)   track live age 3s   duty confirmed
+
+GET /gtfs-rt/vehicle-positions
+  200  application/x-protobuf  47 entities  header.timestamp=...
+       oldest vehicle.timestamp is 247s behind header  <- a dark bus, honestly aged
+       0 entities for untracked vehicles
+
+GET /gtfs-rt/trip-updates
+  200  application/x-protobuf  41 entities
+       every StopTimeEvent has uncertainty, none is 0
+       stops beyond horizon 5: schedule_relationship=NO_DATA, no arrival
+
+PASS  10 checks, 0 failures
+```
+
+**The three frames that prove it works** are the scanned-versus-typed
+difference, the `200 out_of_service` where a lesser design returns `404`, and the
+`untracked` bus with a confirmed duty and no position.
+
+### 14.2 The criteria
+
+Numbered so they can be ticked off.
+
+**Boot and geometry**
+
+1. `docker compose up` on a clean clone reaches `/readyz` `200` **with no
+   network access**, in under 20 seconds.
+2. `/readyz` reports a non-zero route count, station count and vehicle count, and
+   `tickLagMs < SIM_TICK_MS`.
+3. Every loaded shape has monotonically non-decreasing `shape_dist_traveled`, and
+   its final value is within 5% of the summed haversine length. A violation
+   fails startup, naming the shape.
+4. `check-metro-topology` passes all four checks (§9.2) against the bundled
+   topology, and CI runs it.
+5. Every route named in `BUS_ROUTES` is present. A missing one fails startup,
+   naming it.
+
+**Identity**
+
+6. `checkChar` is Luhn: `0412 -> 7`, and **every** single-digit substitution of a
+   valid five-digit BIN suffix is rejected. Assert exhaustively over all 5x9
+   substitutions for at least 100 fixture BINs.
+7. Every adjacent transposition is rejected **except** `09 <-> 90`, and the test
+   asserts that exception explicitly so the known gap cannot silently widen.
+8. `classify()` never returns `bin` for any string matching either plate pattern,
+   and never `plate` for any BIN pattern. Assert over generated exhaustive
+   samples, not examples.
+9. No BIN in the generated fleet fails its own check digit.
+10. Every generated fixture plate uses the `ZZ` series. **Zero exceptions**, and
+    the assertion names any that do not.
+11. Per BIN, exactly one plate has `until: null`; no two periods overlap; no
+    normalised plate is current for two BINs.
+
+**Resolve**
+
+12. `?code=BLR-04127` and `?code=blr04127` and `?code=BLR 04127` return
+    identical bodies but for `meta.generatedAt` and `tracking`.
+13. `entry=scan` yields `confirmation.required: false`;
+    `entry=manual` and a missing `entry` both yield `true`.
+14. A BIN failing its check digit returns `400 bad_check_character` **and the
+    registry is never consulted** - assert with a spy on the registry, not by
+    inspecting the response.
+15. A well-formed unknown BIN returns `404 unknown_bin`.
+16. A real BIN with no duty today returns **`200`** with
+    `duty.status: "out_of_service"`. **This one must not regress to a 404.**
+17. A retired plate returns `404 plate_no_longer_current` carrying `retiredOn`,
+    and the body contains **neither** the BIN **nor** the current plate.
+18. A metro BIN returns `422 not_a_resolvable_code` naming
+    `/fleet/metro/arrivals`.
+19. `meta.simulated` is `true` and `X-Simulated: true` is present on **every**
+    response including every error. Assert across the whole route table.
+20. When `duty.status` is `unknown`, `duty.route` is `null` and
+    `confirmation.verify` has exactly one entry.
+
+**Tracking**
+
+21. Every `tracking.state` value is reachable. Force each with
+    `/admin/scenario` and assert the resulting body, including
+    `tracking.reason`.
+22. `untracked` implies `position: null` and
+    `reason: "no_device_fitted"`; `dark` implies a non-null position with
+    `fixAgeSeconds > BUS_DARK_AFTER_SECONDS`.
+23. `fixAgeSeconds == servedAt - observedAt`, to the second, on every response.
+24. With `BUS_COVERAGE_SHARE=0.0`, **every** bus is `untracked` and
+    `/gtfs-rt/vehicle-positions` contains **zero** bus entities.
+25. With `SIM_SEED` fixed and `SIM_CLOCK` frozen, two fresh processes produce
+    byte-identical `/fleet/routes` and identical coverage sets. **This is the
+    determinism test and it is the one that saves the demo.**
+
+**Duty**
+
+26. The four bus shares must sum to 1.0; a set that does not **fails startup**,
+    and the test asserts the failure and the message.
+27. `confidence` is present iff `status == "inferred"`, and lies inside the
+    configured min/max.
+28. A forced roster swap changes `duty.status` and `duty.reason` and leaves every
+    field of `tracking` unchanged. **This is the section 5 test.**
+29. With `METRO_DUTY_CONFIRMED_SHARE=1.0`, no train is ever `inferred`,
+    `unknown` or `out_of_service`.
+
+**Feeds**
+
+30. `/gtfs-rt/vehicle-positions` parses as a `transit_realtime.FeedMessage` using
+    the vendored `.proto`; `header.gtfs_realtime_version == "2.0"` and
+    `incrementality == FULL_DATASET`.
+31. No entity exists for an `untracked` vehicle.
+32. For a `stale` or `dark` vehicle, `header.timestamp - vehicle.timestamp`
+    genuinely exceeds `BUS_STALE_AFTER_SECONDS`. **The feed must not be
+    freshened.**
+33. `vehicle.position.speed` is in **metres per second**. Assert against the
+    JSON mirror's `speedKph / 3.6` to within 0.1.
+34. Metro entities carry `label` and no `license_plate`; bus entities carry
+    `license_plate` and no `label`.
+35. **Every `StopTimeEvent` in `/gtfs-rt/trip-updates` has `uncertainty` set, and
+    none is `0`.** Assert over the whole feed, every field, no exceptions. This
+    is the honesty requirement made mechanical.
+36. `uncertainty` is non-decreasing along a trip's `stop_time_update` list.
+37. Stops beyond `PREDICTION_HORIZON_STOPS` carry
+    `schedule_relationship: NO_DATA` and **no** `arrival` or `departure`.
+38. A vehicle with `duty.status: unknown` has no `TripUpdate`.
+39. At most one `TripUpdate` per `trip_id` across the whole feed.
+40. Metro `uncertainty` values are strictly smaller than bus values at the same
+    stop offset. **The mode contrast must be observable in the feed**, not only
+    in the config.
+
+**Config and boundaries**
+
+41. `.env.example` contains every variable `src/config.ts` reads, and no others.
+    Assert by parsing both. A drift here is what makes a deployment mysterious.
+42. **No `localhost`, `127.0.0.1`, `0.0.0.0` or bare port literal appears
+    outside `src/config.ts`, `docker-compose.yml`, `.env.example` and
+    `SPEC.md`.** A repository grep, run as a test.
+43. **`Math.random` appears nowhere in `src/`.** A lint rule and a test.
+44. `src/` contains no outbound HTTP client. This service never calls out.
+    `scripts/` may, and is excluded.
+45. A vehicle-class branch outside `sim/profile.ts`, `sim/device.ts` and
+    `sim/duty.ts` fails a grep-based test. §3.3.
+
+### 14.3 The tests, in four layers
+
+**A. Pure unit tests** - `tests/fleet/`, `tests/geometry/`, `tests/sim/`. No
+HTTP, no container, no clock. Given a shape and a distance, assert a position.
+Given a seed and a BIN, assert the same draw twice. **Highest value per minute
+in the suite**, because `checkChar`, `classify` and `shape` are where a
+misreading of this document does the most damage and costs the least to catch.
+
+**B. API contract tests** - `tests/api/`, `tests/gtfsrt/`. A real server on an
+ephemeral port, a frozen `SIM_CLOCK`, and **golden files** for the full
+`/fleet/resolve` body in each of the four `duty.status` values crossed with the
+four `tracking.state` values. Sixteen golden files, generated once, reviewed by
+a human, and diffed thereafter. **This is what stops a field being renamed
+without the sibling project finding out**, and the goldens are what
+`docs/consuming.md` shows.
+
+**C. Feed conformance** - `tests/gtfsrt/`. Decode with the vendored `.proto`,
+never with a hand-rolled parser, and assert criteria 30-40 field by field. Where
+a third-party GTFS-Realtime validator can be run offline, run it in CI; where it
+cannot, the field assertions stand alone. `UNRESOLVED:` whether MobilityData's
+validator can run against a live URL in CI without network egress. If it can, add
+it; the field assertions do not depend on it.
+
+**D. One end-to-end test** - `tests/e2e/demo.test.ts`, tagged and skipped unless
+`E2E=1` and the stack is up. Drives the whole section 14.1 sequence and asserts
+criteria 1, 12, 13, 14, 16, 24, 25 and 35. **One** such test, not a suite: it is
+slow, it needs Docker, and everything else is better tested at layer A or B.
+
+### 14.4 What must be logged
+
+Structured JSON, one line per request, with `requestId`, `method`, `path`,
+`status`, `durationMs`, and where applicable `bin`, `matchedOn`, `dutyStatus`,
+`trackingState`, `entry`. One `grep` on a BIN must follow a vehicle through a
+resolve, a position poll and a feed build.
+
+Boot logs the four lines of section 14.1, including **the untracked count**,
+because "23 tracked, 7 untracked" is the line that makes partial coverage
+visible to whoever is running the demo before they wonder why a bus has no dot.
+
+---
+
+## 15. The demo
+
+Ninety seconds. `docs/demo.md` holds the script; `scripts/demo.sh` drives it so
+nothing depends on typing accurately on the day.
+
+| Time | Screen | Said |
+|---|---|---|
+| 0:00-0:10 | The consuming app: a journey with a bus leg and a metro leg. | "One journey, two modes. This is what the app shows a rider." |
+| 0:10-0:22 | Split screen. Metro leg: a train, a countdown, a platform. Bus leg: a hedged estimate, and a line saying the bus is not tracked. | "The metro leg is confident. The bus leg is not. **Both came from the same service, in the same second.**" |
+| 0:22-0:35 | `curl /fleet/routes` and the boot log: `23 tracked, 7 untracked`. | "Because a quarter of these buses have no tracking device on them at all. That is not a bug in the simulator; that is what an under-instrumented fleet looks like, and the app has to be honest about it." |
+| 0:35-0:48 | Scan a QR sticker on a printed bus. The resolve response. Then type the same code with one digit wrong: `400 bad_check_character`, instantly. | "Scan the code on the bus, and it resolves. Type it wrong by one digit, and it fails on the phone, before it can quietly resolve to a different real bus." |
+| 0:48-0:58 | Type the code correctly. The confirmation screen: plate and route number. | "Typed, not scanned - so it asks the rider to check the two things painted on the bus. **The number the system uses is never shown, because nobody can check it.**" |
+| 0:58-1:14 | `/admin/scenario` forces a roster swap. The response, before and after, side by side: `duty` changed, **`tracking` byte-identical**. | "This bus was just reassigned mid-shift. What it is doing changed. Where it is did not. **Those are two different questions and this service never confuses them** - which is the only reason the app can avoid lying about either." |
+| 1:14-1:24 | `/gtfs-rt/trip-updates.json`, one `stop_time_update` expanded: `uncertainty: 45`, then `135`, then `NO_DATA`. | "Arrival predictions carry an error bar that widens with distance, and past five stops the feed says it does not know - in the field the GTFS-Realtime standard defines for exactly that." |
+| 1:24-1:30 | The fidelity table, both columns. | "The geometry, the identifiers and every way the tracking fails are real. The buses are not. Here is exactly which is which." |
+
+Four rules for the recording:
+
+1. **The mode contrast at 0:10 is the opening argument.** A confident metro leg
+   next to a hedged bus leg, from one service, at one moment. Lead with it.
+2. **The roster swap at 0:58 is the money shot.** It is the one frame that
+   proves the two state machines are independent, and it is the whole reason this
+   design is worth more than a `status` enum. Slow it down and hold both panes.
+3. **Never say "the bus is 4 minutes away."** Say "4 minutes, give or take one".
+   The band is the product.
+4. **Freeze the clock.** `SIM_CLOCK=<instant>` and a fixed `SIM_SEED` so the
+   second take is the first take. Criterion 25 exists to make this safe.
