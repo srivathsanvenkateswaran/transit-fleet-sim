@@ -882,6 +882,25 @@ disambiguation is free.
 - **`duty.route` is `null`** when `duty.status` is `unknown` or
   `out_of_service`. A consumer must handle that; it is not an error.
 
+- **Everything that describes the duty goes null with the route.** When
+  `duty.route` is `null`, so are `duty.headsign`, `duty.directionId`,
+  `duty.trip`, `duty.since` and `duty.confidence`. A duty nobody can name has
+  no direction, no trip and no start time either, and a service that fills any
+  of them in is claiming to know the thing it just said it did not.
+
+- **`tracking.progress` is non-null only when `tracking.state` is `live`.** It
+  is `null` in `stale`, `dark` and `untracked`. Progress says where the vehicle
+  is on its route *now*; computed from an old fix it is a claim about the past
+  wearing the present tense, which is the single manufacture this whole service
+  exists to avoid. `dark` keeps its last `position` because that is explicitly
+  labelled as old by `fixAgeSeconds`; it does not keep a stop count, because a
+  count carries no age with it.
+
+- **`fixAgeSeconds` is `null` when `tracking.state` is `untracked`.** Never
+  `0`. There is no fix, so there is nothing to age, and `0` is indistinguishable
+  from a fix that arrived this instant. A consumer rendering `0` would print
+  "seen just now" about a vehicle nobody has ever seen.
+
 **`tracking.reason` values**, non-null whenever `state != "live"`:
 
 | Value | State |
