@@ -96,7 +96,7 @@ export interface DutyObservation {
   /** Null when `status` is `unknown` or `out_of_service`. */
   readonly trip: TripRef | null
   /** RFC 3339 instant this duty was assigned. Updated by a mid-day swap. */
-  readonly since: string
+  readonly since: string | null
   readonly source: DutySource
   /** Possibly non-empty only when `status` is `unknown`. */
   readonly alternatives: readonly DutyAlternative[]

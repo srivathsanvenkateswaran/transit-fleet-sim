@@ -2,13 +2,30 @@ import { resolve } from 'node:path'
 
 export type GtfsSource = 'bundled' | 'path' | 'url'
 
+const servicePort = parsePositiveInteger(process.env.PORT ?? '8080', 'PORT')
+
 /**
  * Environment names and local defaults live in this file only. Configuration
  * grows with the service, but callers receive already parsed values.
  */
 export const config = {
   host: process.env.HOST ?? '0.0.0.0',
-  port: parsePositiveInteger(process.env.PORT ?? '3000', 'PORT'),
+  port: servicePort,
+  publicBaseUrl: process.env.PUBLIC_BASE_URL ?? `http://localhost:${servicePort}`,
+  corsAllowedOrigins: process.env.CORS_ALLOWED_ORIGINS ?? '*',
+  requestTimeoutMs: parsePositiveInteger(
+    process.env.REQUEST_TIMEOUT_MS ?? '5000',
+    'REQUEST_TIMEOUT_MS',
+  ),
+  simAllowTimeTravel: parseBoolean(
+    process.env.SIM_ALLOW_TIME_TRAVEL ?? 'false',
+    'SIM_ALLOW_TIME_TRAVEL',
+  ),
+  predictionHorizonStops: parsePositiveInteger(
+    process.env.PREDICTION_HORIZON_STOPS ?? '5',
+    'PREDICTION_HORIZON_STOPS',
+  ),
+  busHubName: process.env.BUS_HUB_NAME ?? 'Bengaluru Central',
   gtfsSource: parseGtfsSource(process.env.GTFS_SOURCE ?? 'bundled'),
   gtfsBundlePath: resolve(process.env.GTFS_BUNDLE_PATH ?? 'data/bundle'),
   gtfsPath: process.env.GTFS_PATH === undefined ? null : resolve(process.env.GTFS_PATH),
@@ -159,4 +176,10 @@ function parseHubCode(raw: string, name: string): string {
 function parseGtfsSource(raw: string): GtfsSource {
   if (raw === 'bundled' || raw === 'path' || raw === 'url') return raw
   throw new Error(`GTFS_SOURCE must be bundled, path or url, got ${JSON.stringify(raw)}`)
+}
+
+function parseBoolean(raw: string, name: string): boolean {
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`${name} must be true or false, got ${JSON.stringify(raw)}`)
 }

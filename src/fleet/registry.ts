@@ -1,4 +1,4 @@
-import { parseBin } from './bin.js'
+import { normaliseCode, parseBin } from './bin.js'
 import { parsePlate } from './plate.js'
 
 export type PlateChangeReason = 'original_registration' | 're_registration' | 'replacement'
@@ -13,7 +13,7 @@ export interface PlatePeriod {
 
 export interface FleetVehicle {
   readonly bin: string
-  readonly class: 'bus'
+  readonly class: 'bus' | 'metro'
   readonly homeRouteNumber: string
   readonly plates: readonly PlatePeriod[]
 }
@@ -41,6 +41,12 @@ export class FleetRegistry {
     return parsed.ok ? (this.#byBin.get(parsed.value.canonical) ?? null) : null
   }
 
+  findByBinUnchecked(value: string): FleetVehicle | null {
+    const normalised = normaliseCode(value)
+    if (!/^[A-Z]{3}\d{5}$/.test(normalised)) return null
+    return this.#byBin.get(`${normalised.slice(0, 3)}-${normalised.slice(3)}`) ?? null
+  }
+
   findByPlate(value: string): PlateLookup {
     const parsed = parsePlate(value)
     if (parsed === null) return { kind: 'not_found' }
@@ -61,6 +67,11 @@ export class FleetRegistry {
     if (this.#byBin.has(vehicle.bin)) throw new Error(`Duplicate BIN ${vehicle.bin}`)
     const parsedBin = parseBin(vehicle.bin, this.hubs)
     if (!parsedBin.ok) throw new Error(`Invalid registry BIN ${vehicle.bin}: ${parsedBin.reason}`)
+    if (vehicle.class === 'metro') {
+      if (vehicle.plates.length !== 0) throw new Error(`Metro vehicle ${vehicle.bin} must not have a plate`)
+      this.#byBin.set(vehicle.bin, vehicle)
+      return
+    }
     const ordered = [...vehicle.plates].sort((a, b) => a.since.localeCompare(b.since))
     const current = ordered.filter((plate) => plate.until === null)
     if (current.length !== 1) throw new Error(`Vehicle ${vehicle.bin} must have exactly one current plate`)

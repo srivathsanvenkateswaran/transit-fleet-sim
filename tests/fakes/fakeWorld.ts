@@ -105,7 +105,7 @@ export function fakeDuty(
     headsign: onDuty ? 'Hebbala Bridge' : null,
     directionId: onDuty ? 0 : null,
     trip: onDuty ? TRIP_1042 : null,
-    since: '2026-08-20T03:45:00Z',
+    since: onDuty ? '2026-08-20T03:45:00Z' : null,
     source: status === 'confirmed' ? 'roster' : status === 'inferred' ? 'position_match' : 'none',
     alternatives: [],
     reason: DEFAULT_DUTY_REASON[status],

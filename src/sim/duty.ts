@@ -78,11 +78,15 @@ export function createDutyState(
       reason: reasons[reasonIndex] ?? 'ambiguous_trip_match',
     }
   }
+  const outOfServiceReasons: DutyReason[] = ['deadheading', 'on_break', 'withdrawn']
+  const outOfServiceIndex = Math.floor(
+    rand(profile.seed, bin, 'out_of_service_reason', serviceDate) * outOfServiceReasons.length,
+  )
   return {
     status: 'out_of_service',
     since: new Date(at),
     confidence: null,
-    reason: rand(profile.seed, bin, 'out_of_service_reason', serviceDate) < 0.5 ? 'deadheading' : 'on_break',
+    reason: outOfServiceReasons[outOfServiceIndex] ?? 'withdrawn',
   }
 }
 
@@ -125,7 +129,7 @@ export function dutyObservation(
           startedAt: bus.tripStartedAt.toISOString(),
         }
       : null,
-    since: state.since.toISOString(),
+    since: onDuty ? state.since.toISOString() : null,
     source:
       state.status === 'confirmed'
         ? 'roster'
