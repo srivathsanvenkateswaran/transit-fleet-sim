@@ -91,7 +91,7 @@ which is definitely coming is missing.
 | | Example | Who uses it |
 |---|---|---|
 | Number plate | `KA-01-F-1234` | The rider. Painted on the bus. |
-| **BIN** (Bus Identification Number) | `BLR-04127` | The system. Stable, never changes. |
+| **BIN** (Bus Identification Number) | `BLR-04126` | The system. Stable, never changes. |
 | Route number | `500-D` | The rider. On the destination board. |
 
 Plates change, so the BIN-to-plate mapping is temporal, with validity periods.
@@ -108,7 +108,7 @@ rider's phone rather than silently resolving to a real different bus.
 ## The interface
 
 ```
-GET /fleet/resolve?code=BLR-04127        # BIN, from a QR scan or typed
+GET /fleet/resolve?code=BLR-04126        # BIN, from a QR scan or typed
 GET /fleet/resolve?code=KA01F1234        # number plate, typed
 GET /fleet/metro/arrivals?station=...    # which trains are approaching
 GET /fleet/vehicle/{bin}/position        # JSON, one vehicle, cheap to poll

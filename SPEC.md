@@ -373,7 +373,7 @@ a design smell and should be pushed into the profile.**
 | | Example | Who uses it | Changes? |
 |---|---|---|---|
 | **Number plate** | `KA-01-F-1234` | The rider. Painted on the bus, front and rear. | Yes. Re-registration, replacement vehicles, transfers between depots. |
-| **BIN** (Bus Identification Number) | `BLR-04127` | The system. Never shown to a rider. | **Never.** This is the whole point of it. |
+| **BIN** (Bus Identification Number) | `BLR-04126` | The system. Never shown to a rider. | **Never.** This is the whole point of it. |
 | **Route number** | `500-D` | The rider. On the destination board. | Per duty. The same bus runs different route numbers on different days. |
 
 These are three different questions wearing similar clothes, and conflating any
@@ -400,7 +400,7 @@ BLR - 0412 7
 ```
 
 **Normalised form** for lookup and comparison: uppercase, all non-alphanumerics
-removed. `BLR-04127` and `blr04127` both normalise to `BLR04127`. The canonical
+removed. `BLR-04126` and `blr04127` both normalise to `BLR04127`. The canonical
 hyphenated form is what the service emits; the normalised form is what it
 accepts.
 
@@ -408,47 +408,59 @@ accepts.
 containing `I` or `O` (section 4.3 explains why those two letters are avoided).
 The bundled fixture set uses `BLR` for buses and `MTR` for metro trains.
 
-**The check digit is the Luhn algorithm** over the four serial digits, appended
-as the fifth digit. Luhn is specified in ISO/IEC 7812-1 Annex B and is the
-algorithm behind payment card numbers.[^luhn] The reference implementation is
-four lines and needs no dependency.
+**The check digit is the Damm algorithm** over the four serial digits, appended
+as the fifth digit. Damm uses a single totally anti-symmetric quasigroup of
+order 10, published by H. Michael Damm in 2004.[^damm] The reference
+implementation is one 10 x 10 table and a five-line loop, and needs no
+dependency.
 
 Worked example, and it is worth doing by hand once:
 
 ```
 serial               0  4  1  2
-double alternate,
-from the right       0  8  1  4      (4 -> 8, 2 -> 4; digits over 9 subtract 9)
-sum                  0 + 8 + 1 + 4 = 13
-check digit          (10 - 13 mod 10) mod 10 = 7
 
-BIN = BLR-04127
+interim = 0
+interim = TABLE[0][0] = 0
+interim = TABLE[0][4] = 5
+interim = TABLE[5][1] = 6
+interim = TABLE[6][2] = 6
+
+check digit = 6      the interim value after the last digit IS the check digit
+
+BIN = BLR-04126
 ```
 
-**What this buys, precisely.** Luhn detects **every single-digit substitution**
-and **every adjacent transposition except `09` <-> `90`**.[^luhn] A rider who
-mistypes one digit of a BIN gets a local validation failure, instantly, without
-a network round trip and without the risk of silently resolving to a real
-different bus. That is the requirement.
+Validation is the same loop continued over the check digit: a BIN is valid when
+the interim value after consuming all five digits is `0`.
 
-**What it does not buy, stated plainly.** The `09` <-> `90` gap is real. `0904`
-and `9004` both carry check digit `3`, so a rider transposing those two digits
-would pass validation and resolve to the wrong vehicle. Two responses, and this
-document takes the first:
+**What this buys, precisely, and it is measured rather than asserted.** Damm
+detects **every single-digit substitution** and **every adjacent transposition,
+with no exceptions**.[^damm] Over all 10,000 four-digit serials there are 27,000
+adjacent transpositions that change the serial; Damm leaves **zero** of them
+undetected. A rider who mistypes or transposes a digit of a BIN gets a local
+validation failure, instantly, without a network round trip and without the risk
+of silently resolving to a real different bus. That is the requirement, and Damm
+meets it exactly.
 
-1. **Accept the gap and cover it downstream.** The typed-entry flow already
-   requires explicit confirmation of the plate and route before the code is used
-   (section 6.4). A rider who transposed `09` into `90` is shown a plate that is
-   not the one on the bus in front of them, and stops. The check character is a
-   first filter, not the only one.
-2. **Use the Damm algorithm instead**, which detects all single-digit errors
-   *and* all adjacent transpositions with no exceptions.[^damm] This is
-   strictly stronger. It is not chosen because the check digit for serial `0412`
-   under Damm is `6`, not `7`, which would make `BLR-04127` - the identifier
-   used throughout this document, in the sibling project, and in every worked
-   example - invalid. **If the fixture BINs are ever regenerated, switch to
-   Damm at the same time.** The interface is one function,
-   `src/fleet/checkChar.ts`, and nothing else changes.
+**Why not Luhn.** An earlier draft of this document specified Luhn, on the
+grounds that it is familiar and that it kept `BLR-04126` valid as the worked
+example used throughout. That was the wrong trade. Luhn detects every
+single-digit substitution but misses the `09` <-> `90` adjacent transposition,
+and over the same 27,000 cases it leaves **600 undetected**. Those 600 are
+precisely the failure this mechanism exists to prevent: a transposed digit that
+passes validation and resolves to a real, different, wrong bus, which then binds
+a ticket to a vehicle the rider is not on.
+
+Downstream confirmation of the plate and route (section 6.4) would catch most of
+those, but a first filter that is free and complete beats a first filter that is
+free and 97.8% complete. The consuming application's approved design specifies
+Damm for the same reason.
+
+**The cost of the change, stated.** The check digit for serial `0412` is `6`
+under Damm and `7` under Luhn, so the canonical example BIN is **`BLR-04126`**,
+not `BLR-04126`. Every fixture BIN is generated by the same function, so there
+is no separate migration; a regenerated fixture set is internally consistent by
+construction.
 
 **Validation is local.** A consuming app must be able to reject a malformed BIN
 without calling this service, so the algorithm is documented here in full and
@@ -483,7 +495,7 @@ registry holds a history, not a value:
 
 ```jsonc
 {
-  "bin": "BLR-04127",
+  "bin": "BLR-04126",
   "plates": [
     { "normalised": "KA01FA9902", "display": "KA-01-FA-9902",
       "since": "2023-06-01", "until": "2026-02-14",
@@ -558,12 +570,12 @@ model:
 3. The simulation engine is shared. A train is a cursor on a polyline with a
    different profile; giving it a different identity type would fork the engine.
 
-Metro BINs use the hub code `MTR` (`MTR-00187`), the same format and the same
+Metro BINs use the hub code `MTR` (`MTR-00182`), the same format and the same
 check digit. **They are never resolvable through `/fleet/resolve`**, and the
 endpoint says so explicitly rather than returning `not_found`:
 
 ```
-GET /fleet/resolve?code=MTR-00187
+GET /fleet/resolve?code=MTR-00182
 -> 422 { "error": "not_a_resolvable_code", "class": "metro", ... }
 ```
 
@@ -592,8 +604,8 @@ a stable answer six months later when the plate has changed. A ticket rendering
 may show it in small type in a provenance block; it must never be presented as
 something to check.
 
-**The corollary, for the consuming app:** a screen that says "bus `BLR-04127` is
-4 minutes away" has failed the rule twice. The rider cannot verify `BLR-04127`,
+**The corollary, for the consuming app:** a screen that says "bus `BLR-04126` is
+4 minutes away" has failed the rule twice. The rider cannot verify `BLR-04126`,
 and section 7.3 has something to say about the 4.
 
 ---
@@ -735,7 +747,7 @@ the bus, which encodes a URL ending `?code=<BIN>`, or types a code by hand. Both
 land here.
 
 ```
-GET /fleet/resolve?code=BLR-04127          # BIN, from a scan or typed
+GET /fleet/resolve?code=BLR-04126          # BIN, from a scan or typed
 GET /fleet/resolve?code=KA01F1234          # plate, typed
 GET /fleet/resolve?code=KA-01-F-1234       # plate, typed with separators
 ```
@@ -763,7 +775,7 @@ disambiguation is free.
 
 ```jsonc
 {
-  "bin": "BLR-04127",
+  "bin": "BLR-04126",
   "matchedOn": "bin",                      // "bin" | "plate"
 
   "vehicle": {
@@ -1065,7 +1077,7 @@ GET /fleet/metro/arrivals?station=<stopId>&towards=<terminalStopId>&limit=3
       "duty":     { "status": "confirmed", "confidence": null },
       "trip":     { "id": "MTR-PPL-U-0413", "startTime": "09:22:00",
                     "startDate": "20260820" },
-      "vehicle":  { "bin": "MTR-00187", "displayToRider": false }
+      "vehicle":  { "bin": "MTR-00182", "displayToRider": false }
     }
   ],
   "meta": { "simulated": true, "seed": 1,
@@ -1149,7 +1161,7 @@ same data for one vehicle, in JSON, cheap.
 
 ```jsonc
 {
-  "bin": "BLR-04127",
+  "bin": "BLR-04126",
   "class": "bus",
   "tracking": { /* identical shape to resolve's `tracking`, section 6.2 */ },
   "duty": {
@@ -1199,7 +1211,7 @@ One `FeedEntity` per vehicle that has a position - that is, every vehicle whose
 
 | GTFS-RT field | Source |
 |---|---|
-| `entity.id` | The BIN, canonical form: `BLR-04127` |
+| `entity.id` | The BIN, canonical form: `BLR-04126` |
 | `vehicle.vehicle.id` | The BIN, canonical form |
 | `vehicle.vehicle.license_plate` | Current plate, normalised: `KA01F1234`. **Omitted for metro.** |
 | `vehicle.vehicle.label` | **Omitted for buses.** For metro: `Purple Line to Whitefield (Kadugodi)` |
@@ -1422,7 +1434,7 @@ one.
 
 ```jsonc
 {
-  "target": { "bin": "BLR-04127" },        // or { "route": "500-D" } or { "all": true }
+  "target": { "bin": "BLR-04126" },        // or { "route": "500-D" } or { "all": true }
   "set": {
     "tracking": "dark",                     // live|stale|dark|untracked, or null to release
     "duty": "unknown",                      // any duty.status, or null to release
@@ -2182,7 +2194,7 @@ and `README.md` links to it rather than duplicating it.
 │   │
 │   ├── fleet/
 │   │   ├── bin.ts                 # parse, format, normalise
-│   │   ├── checkChar.ts           # Luhn. The one file to swap for Damm.
+│   │   ├── checkChar.ts           # Damm. One table, one loop, no dependency.
 │   │   ├── plate.ts               # parse, normalise, display form
 │   │   ├── classify.ts            # BIN vs plate vs malformed. Section 6.3.
 │   │   ├── registry.ts            # BIN -> vehicle, plate history, temporal lookup
@@ -2398,14 +2410,14 @@ which.*
 [boot] seed=1  listening on 0.0.0.0:8080
 [ready] tick 1000ms, lag 3ms
 
-GET /fleet/resolve?code=BLR-04127&entry=scan
-  200  bin BLR-04127  matchedOn=bin  plate KA-01-ZZ-1234 (since 2026-02-14)
+GET /fleet/resolve?code=BLR-04126&entry=scan
+  200  bin BLR-04126  matchedOn=bin  plate KA-01-ZZ-1234 (since 2026-02-14)
        duty  confirmed  500-D  "Hebbala Bridge"  trip 1042
        track live  age 14s  12.97843,77.64081  next Domlur (seq 14)
        confirmation.required = false          <- scanned
 
 GET /fleet/resolve?code=ka01zz1234
-  200  bin BLR-04127  matchedOn=plate
+  200  bin BLR-04126  matchedOn=plate
        confirmation.required = true           <- typed
        verify: Number plate KA-01-ZZ-1234 | Route 500-D
 
@@ -2418,7 +2430,7 @@ GET /fleet/resolve?code=BLR-99999
 GET /fleet/resolve?code=BLR-01185
   200  duty out_of_service (withdrawn)        <- real BIN, no duty today. NOT a 404.
 
-GET /fleet/resolve?code=MTR-00187
+GET /fleet/resolve?code=MTR-00182
   422  not_a_resolvable_code  class=metro  seeInstead=/fleet/metro/arrivals
 
 GET /fleet/resolve?code=BLR-70153
@@ -2466,7 +2478,7 @@ Numbered so they can be ticked off.
 
 **Identity**
 
-6. `checkChar` is Luhn: `0412 -> 7`, and **every** single-digit substitution of a
+6. `checkChar` is Damm: `0412 -> 6`, and **every** single-digit substitution of a
    valid five-digit BIN suffix is rejected. Assert exhaustively over all 5x9
    substitutions for at least 100 fixture BINs.
 7. Every adjacent transposition is rejected **except** `09 <-> 90`, and the test
@@ -2482,7 +2494,7 @@ Numbered so they can be ticked off.
 
 **Resolve**
 
-12. `?code=BLR-04127` and `?code=blr04127` and `?code=BLR 04127` return
+12. `?code=BLR-04126` and `?code=blr04127` and `?code=BLR 04127` return
     identical bodies but for `meta.generatedAt` and `tracking`.
 13. `entry=scan` yields `confirmation.required: false`;
     `entry=manual` and a missing `entry` both yield `true`.
@@ -2647,7 +2659,7 @@ Engineering days, one person, at the pace the sibling project has been moving.
 | **0. Spike** | Load the bundled GTFS subset, index one shape, walk one cursor along it, serve one JSON position. Settles whether `shape_dist_traveled` is usable as-is. | **0.5** |
 | **1. Bus geometry** | GTFS loader for all three source modes, cumulative-distance shape index, stop projection, `build-bundle.ts`, `SOURCE.md`. | **0.75** |
 | **2. Metro geometry** | Overpass fetch, way stitching, `metro-topology.json`, and the four-check integrity gate. | **0.5** |
-| **3. Fleet registry** | BIN parse/format, Luhn, plate parse and normalise, `classify`, temporal plate history, seeded fleet generation. | **0.5** |
+| **3. Fleet registry** | BIN parse/format, Damm, plate parse and normalise, `classify`, temporal plate history, seeded fleet generation. | **0.5** |
 | **4. Simulation core** | The tick, the cursor, bus speed and dwell, the metro trapezoidal profile, headway dispatch, layovers, trip lifecycle, seeded PRNG. | **1.0** |
 | **5. Honesty models** | Coverage, fix interval and staleness, dropouts, positional noise, the duty state machine, mid-day swaps, the scenario surface. | **0.75** |
 | **6. HTTP surface** | `resolve` with the full body and the error taxonomy, `vehicle/{bin}/position`, `metro/arrivals`, `routes`, `healthz`, `readyz`. | **0.75** |
@@ -2794,8 +2806,7 @@ two are half-day lookups that shape stage 0 and stage 2.
 [^gtfsrt-tripupdates]: GTFS-Realtime TripUpdates, including "The uncertainty roughly specifies the expected error in true delay as an integer in seconds", the 240-second worked example, the at-most-one-TripUpdate-per-trip rule, and delay propagation. https://gtfs.org/documentation/realtime/feed-entities/trip-updates/
 [^gtfsrt-bp]: GTFS-Realtime best practices: refresh at least every 30 seconds; data within the feed no older than 90 seconds for Trip Updates and Vehicle Positions. https://gtfs.org/documentation/realtime/realtime-best-practices/ and https://github.com/google/transit/blob/master/gtfs-realtime/best-practices/best-practices.md
 [^gtfsrt-licence]: `google/transit` is licensed Apache 2.0. https://github.com/google/transit/blob/master/LICENSE
-[^luhn]: The Luhn algorithm, specified in ISO/IEC 7812-1 Annex B. Detects all single-digit errors and all adjacent transpositions except `09` <-> `90`. https://en.wikipedia.org/wiki/Luhn_algorithm
-[^damm]: The Damm algorithm. Detects all single-digit errors and all adjacent transpositions, with no exceptions. https://en.wikipedia.org/wiki/Damm_algorithm
+[^damm]: The Damm algorithm, H. Michael Damm, 2004. A single totally anti-symmetric quasigroup of order 10. Detects all single-digit errors and all adjacent transpositions, with no exceptions. https://en.wikipedia.org/wiki/Damm_algorithm
 [^plate-format]: Vehicle registration plates of India: two-letter state code, district RTO number, one-to-three-letter series omitting `I` and `O`, four-digit serial; and the Bharat (BH) series. Rule 50, Central Motor Vehicles Rules 1989. https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_India
 [^nammametro]: Namma Metro: operator BMRCL; Purple Line 37 stations / 43.49 km, Green Line 32 stations / 33.46 km, Yellow Line 16 stations / 19.15 km; services 05:00-00:00 with headways varying 3-15 minutes; average speed 35 km/h, maximum 80 km/h; Urbalis 200 automatic train control on Phase 1. https://en.wikipedia.org/wiki/Namma_Metro
 [^yellowline]: Yellow Line: opened 11 August 2025, CBTC signalling, driverless operation, rolling stock from CRRC Nanjing Puzhen with Titagarh Rail Systems. https://en.wikipedia.org/wiki/Yellow_Line_(Namma_Metro)
