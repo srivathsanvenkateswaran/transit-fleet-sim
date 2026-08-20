@@ -1982,3 +1982,352 @@ loaded and both are emitted as `nameLocal`, `null` where absent.
 through to the rider, and a tracking service that drops them forces the app to
 re-join against another dataset to put a name on a stop it just got a position
 for.
+
+---
+
+## 10. Configuration
+
+**The rule: nothing anywhere in this repository hardcodes a port, a hostname, or
+`localhost`.** Exactly one module, `src/config.ts`, reads the environment and
+names a local default for each variable. Every other module imports the parsed
+config object. **Deploying is a matter of changing environment variables and
+nothing else**, and section 14 makes it a test: a grep for `localhost`,
+`127.0.0.1` or a bare port literal outside `src/config.ts` and `*.example` files
+fails the build.
+
+`src/config.ts` **validates and fails fast at startup**, printing every invalid
+variable at once rather than the first. A service that starts with a nonsense
+`BUS_COVERAGE_SHARE` and quietly clamps it is a service whose demo behaves
+inexplicably.
+
+### 10.1 Service
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PORT` | `8080` | |
+| `HOST` | `0.0.0.0` | `0.0.0.0` because the process runs in a container. |
+| `PUBLIC_BASE_URL` | `http://localhost:${PORT}` | The externally reachable base. Used to build QR payloads. **Must be set for any deployment that is not a laptop.** |
+| `QR_PATH_PREFIX` | `/b/` | QR codes encode `${PUBLIC_BASE_URL}${QR_PATH_PREFIX}?code=<BIN>`. |
+| `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
+| `LOG_FORMAT` | `json` | `json` \| `pretty` |
+| `CORS_ALLOWED_ORIGINS` | `*` | Comma-separated. |
+| `ADMIN_TOKEN` | *unset* | When unset, `/admin/*` returns `404`. Section 7.5. |
+| `REQUEST_TIMEOUT_MS` | `5000` | |
+
+### 10.2 Simulation
+
+| Variable | Default | Notes |
+|---|---|---|
+| `SIM_SEED` | `1` | Integer. The whole world derives from it. |
+| `SIM_TICK_MS` | `1000` | |
+| `SIM_TIMEZONE` | `Asia/Kolkata` | Drives service dates and peak windows. |
+| `SIM_CLOCK` | `system` | `system` \| RFC 3339 instant \| `offset:<seconds>`. Section 8.8. |
+| `SIM_SPEEDUP` | `1` | Multiplies simulated elapsed time only. |
+| `SIM_ALLOW_TIME_TRAVEL` | `false` | Enables `?at=` on `/fleet/resolve`. |
+
+### 10.3 Fleet composition
+
+| Variable | Default | Notes |
+|---|---|---|
+| `BUS_ROUTES` | `500-D,500-A,G-4,335-E,401-K` | GTFS `route_short_name` values. Must all exist in the loaded feed or startup fails, naming the missing ones. |
+| `BUSES_PER_ROUTE` | `6` | |
+| `BUS_HUB_CODE` | `BLR` | Three letters, no `I` or `O`. |
+| `BUS_TERMINAL_LAYOVER_SECONDS` | `300` | |
+| `METRO_LINES` | `purple,green,yellow` | |
+| `METRO_TRAINS_PER_LINE` | *unset* | Derived from headway and run time when unset. Section 8.4. |
+| `METRO_HUB_CODE` | `MTR` | |
+| `METRO_TURNAROUND_SECONDS` | `240` | |
+
+### 10.4 The honesty knobs
+
+**These are the point of the project.** Every one exists so a demo can show the
+behaviour on cue rather than waiting for it.
+
+| Variable | Default | What it demonstrates |
+|---|---|---|
+| `BUS_FIX_INTERVAL_SECONDS` | `20` | Staleness. Section 8.5. |
+| `BUS_FIX_JITTER_SECONDS` | `10` | Gives the 10-30 s range real devices show. |
+| `BUS_STALE_AFTER_SECONDS` | `90` | GTFS-RT best-practice data-age ceiling.[^gtfsrt-bp] |
+| `BUS_DARK_AFTER_SECONDS` | `300` | |
+| `BUS_COVERAGE_SHARE` | `0.75` | **Partial coverage.** Set `0.0` to force every bus `untracked` and demonstrate a pure timetable fallback. |
+| `BUS_DROPOUT_RATE_PER_HOUR` | `1.5` | Dropouts. Set high for a demo. |
+| `BUS_DROPOUT_MIN_SECONDS` | `60` | |
+| `BUS_DROPOUT_MAX_SECONDS` | `420` | |
+| `BUS_GPS_NOISE_METRES` | `12` | Positional error, one sigma. |
+| `METRO_FIX_INTERVAL_SECONDS` | `5` | |
+| `METRO_STALE_AFTER_SECONDS` | `30` | |
+| `METRO_DARK_AFTER_SECONDS` | `120` | |
+| `METRO_COVERAGE_SHARE` | `1.0` | **The inverted profile.** Section 2.3. |
+| `METRO_DROPOUT_RATE_PER_HOUR` | `0.05` | |
+| `METRO_POSITION_NOISE_METRES` | `2` | Along-track only. |
+| `METRO_BLOCK_LENGTH_METRES` | `200` | Drives reported `accuracyMetres`. |
+
+### 10.5 Duty and roster uncertainty
+
+| Variable | Default |
+|---|---|
+| `DUTY_CONFIRMED_SHARE` | `0.60` |
+| `DUTY_INFERRED_SHARE` | `0.25` |
+| `DUTY_UNKNOWN_SHARE` | `0.10` |
+| `DUTY_OUT_OF_SERVICE_SHARE` | `0.05` |
+| `DUTY_INFERRED_CONFIDENCE_MIN` | `0.55` |
+| `DUTY_INFERRED_CONFIDENCE_MAX` | `0.95` |
+| `DUTY_SWAP_RATE_PER_DAY` | `0.15` |
+| `METRO_DUTY_CONFIRMED_SHARE` | `0.99` |
+| `METRO_DUTY_SWAP_RATE_PER_DAY` | `0` |
+
+The four bus shares must sum to `1.0` within `1e-6` or startup fails. Section 8.7.
+
+### 10.6 Speed and headway
+
+| Variable | Default | Notes |
+|---|---|---|
+| `BUS_SPEED_KPH_MEAN` | `17` | Bengaluru measured city average.[^blr-speed] |
+| `BUS_SPEED_KPH_SD` | `4` | |
+| `BUS_SPEED_KPH_MIN` / `_MAX` | `5` / `45` | |
+| `BUS_DWELL_SECONDS_MEAN` / `_SD` | `20` / `8` | |
+| `BUS_PEAK_SPEED_FACTOR` | `0.7` | |
+| `BUS_PEAK_WINDOWS` | `07:00-10:00,17:00-21:00` | Local time, `SIM_TIMEZONE`. |
+| `METRO_CRUISE_KPH` | `60` | Inside the 80 km/h system maximum.[^nammametro] |
+| `METRO_ACCEL_MPS2` / `METRO_DECEL_MPS2` | `1.0` / `1.1` | |
+| `METRO_DWELL_SECONDS` / `_SD` | `25` / `4` | |
+| `METRO_HEADWAY_SECONDS_PEAK` | `480` | Purple/Green reported around 8 min at peak.[^metro-headway] |
+| `METRO_HEADWAY_SECONDS_OFFPEAK` | `720` | |
+| `METRO_HEADWAY_SECONDS_PEAK__YELLOW` | `540` | Yellow Line reported at 9 min peak.[^yellow-headway] |
+| `METRO_HEADWAY_SECONDS_OFFPEAK__YELLOW` | `840` | 14 min off-peak.[^yellow-headway] |
+| `METRO_HEADWAY_JITTER_SECONDS` | `20` | |
+
+Per-line overrides use the `__<LINEID>` suffix, uppercased.
+
+### 10.7 Predictions and feeds
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PUBLISH_TRIP_UPDATES` | `true` | Section 7.3. `false` serves `404` on the endpoint, not an empty feed - an empty feed would look like a fleet with no trips. |
+| `PREDICTION_HORIZON_STOPS` | `5` | Beyond this, `NO_DATA`. |
+| `PREDICTION_UNCERTAINTY_BASE_SECONDS` | `45` | |
+| `PREDICTION_UNCERTAINTY_PER_STOP_SECONDS` | `30` | |
+| `METRO_PREDICTION_UNCERTAINTY_BASE_SECONDS` | `15` | |
+| `METRO_PREDICTION_UNCERTAINTY_PER_STOP_SECONDS` | `5` | |
+| `TRIP_UPDATES_OMIT_UNTRACKED` | `false` | Section 7.3 rule 4. |
+| `FEED_TTL_SECONDS` | `15` | `Cache-Control: max-age`. Inside the 30 s guidance.[^gtfsrt-bp] |
+
+### 10.8 Data
+
+| Variable | Default | Notes |
+|---|---|---|
+| `GTFS_SOURCE` | `bundled` | `bundled` \| `path` \| `url` |
+| `GTFS_BUNDLE_PATH` | `./data/bundle` | |
+| `GTFS_PATH` | *unset* | Required when `GTFS_SOURCE=path`. |
+| `GTFS_URL` | *unset* | Required when `GTFS_SOURCE=url`. |
+| `GTFS_CACHE_DIR` | `./.cache/gtfs` | |
+| `METRO_TOPOLOGY_PATH` | `./data/bundle/metro-topology.json` | |
+| `OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | Build-time only. Never called at runtime. |
+| `CITY_BBOX` | `12.7,77.3,13.2,77.9` | `south,west,north,east`. Build-time only. |
+| `GEOMETRY_MAX_STOP_OFFSET_METRES` | `150` | Warn, do not fail. Section 8.2. |
+| `METRO_MAX_STATION_GAP_METRES` | `4000` | Integrity gate. Section 9.2. |
+
+### 10.9 `.env.example`
+
+The repository ships `.env.example` containing **every variable above**, each
+with its default and a one-line comment, in this section's order. It is the
+single place a deployer looks, it is asserted complete by a test (section 14),
+and `README.md` links to it rather than duplicating it.
+
+---
+
+## 11. File and directory layout
+
+```
+.
+├── README.md                      # what this is, how to run it, honesty up front
+├── LICENSE                        # MIT
+├── THIRD_PARTY_NOTICES.md         # BMTC feed (no licence file), OSM (ODbL)
+├── SPEC.md                        # this document
+├── .env.example                   # every variable, documented, with defaults
+├── .dockerignore
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+├── Makefile                       # up / down / logs / demo / test / bundle
+├── package.json
+├── tsconfig.json
+├── vitest.config.ts
+├── eslint.config.js               # carries the no-Math.random and no-localhost rules
+│
+├── proto/
+│   └── gtfs-realtime.proto        # vendored from google/transit, pinned, with SOURCE.md
+│
+├── data/
+│   └── bundle/                    # COMMITTED. Section 9.
+│       ├── SOURCE.md              # upstream URLs, commit SHAs, feed_version, fetch date
+│       ├── gtfs/                  # the extracted route subset, gzipped
+│       │   ├── agency.txt.gz  routes.txt.gz  trips.txt.gz
+│       │   ├── stops.txt.gz   stop_times.txt.gz  shapes.txt.gz
+│       │   ├── calendar.txt.gz  translations.txt.gz  feed_info.txt.gz
+│       │   └── attributions.txt.gz
+│       └── metro-topology.json    # from OSM route relations
+│
+├── src/
+│   ├── index.ts                   # process entry: config, load, tick, listen
+│   ├── config.ts                  # THE ONLY place an env var or a default is named
+│   ├── log.ts                     # structured logging, request ids
+│   │
+│   ├── geometry/
+│   │   ├── loadGtfs.ts            # bundled | path | url
+│   │   ├── loadMetro.ts           # metro-topology.json -> lines and polylines
+│   │   ├── shape.ts               # cumulative-distance index, interpolate, bearing
+│   │   ├── haversine.ts
+│   │   └── projectStops.ts        # stop -> distance along shape, once, at load
+│   │
+│   ├── fleet/
+│   │   ├── bin.ts                 # parse, format, normalise
+│   │   ├── checkChar.ts           # Luhn. The one file to swap for Damm.
+│   │   ├── plate.ts               # parse, normalise, display form
+│   │   ├── classify.ts            # BIN vs plate vs malformed. Section 6.3.
+│   │   ├── registry.ts            # BIN -> vehicle, plate history, temporal lookup
+│   │   └── generate.ts            # seeded fleet generation, ZZ-series plates
+│   │
+│   ├── sim/
+│   │   ├── world.ts               # the tick
+│   │   ├── cursor.ts              # advance along a polyline
+│   │   ├── profile.ts             # bus vs metro parameters   <- one of three
+│   │   ├── device.ts              # coverage, fixes, dropouts <- mode branches
+│   │   ├── duty.ts                # duty state machine, swaps <- allowed here
+│   │   ├── dispatch.ts            # headways, layovers, trip lifecycle
+│   │   ├── tracking.ts            # tracking state machine
+│   │   ├── predict.ts             # ETAs and the uncertainty band
+│   │   ├── rand.ts                # seeded PRNG. No Math.random anywhere.
+│   │   └── scenario.ts            # admin overrides and their TTLs
+│   │
+│   ├── api/
+│   │   ├── server.ts              # routing, CORS, X-Simulated, error shape
+│   │   ├── resolve.ts             # GET /fleet/resolve
+│   │   ├── vehiclePosition.ts     # GET /fleet/vehicle/{bin}/position
+│   │   ├── metroArrivals.ts       # GET /fleet/metro/arrivals
+│   │   ├── routes.ts              # GET /fleet/routes
+│   │   ├── health.ts              # /healthz, /readyz
+│   │   ├── admin.ts               # /admin/scenario
+│   │   └── errors.ts              # the error taxonomy of section 6.5
+│   │
+│   └── gtfsrt/
+│       ├── encode.ts              # protobuf encode + the JSON debug mirror
+│       ├── vehiclePositions.ts    # world -> FeedMessage
+│       └── tripUpdates.ts         # world -> FeedMessage, uncertainty rules
+│
+├── scripts/
+│   ├── build-bundle.ts            # download upstream GTFS, extract subset, write SOURCE.md
+│   ├── fetch-metro-topology.ts    # Overpass -> metro-topology.json
+│   ├── check-metro-topology.ts    # the four-check integrity gate. CI runs it.
+│   ├── make-qr.ts                 # render QR stickers for the fixture fleet
+│   └── demo.sh                    # drives the section 15 sequence
+│
+├── tests/
+│   ├── fleet/{bin,checkChar,plate,classify,registry}.test.ts
+│   ├── geometry/{shape,haversine,projectStops,loadMetro}.test.ts
+│   ├── sim/{cursor,device,duty,dispatch,tracking,predict,rand}.test.ts
+│   ├── api/{resolve,vehiclePosition,metroArrivals,errors,health}.test.ts
+│   ├── gtfsrt/{vehiclePositions,tripUpdates}.test.ts
+│   ├── contract/{envExample,noHardcodedHosts,noMathRandom}.test.ts
+│   └── e2e/demo.test.ts           # needs the stack up; tagged, skipped by default
+│
+└── docs/
+    ├── consuming.md               # the integration guide the sibling project reads
+    ├── fidelity.md                # section 13, standalone and linkable
+    └── demo.md                    # the script
+```
+
+**`proto/gtfs-realtime.proto` is vendored, not fetched at build time.** It is a
+stable, versioned file from `google/transit`,[^gtfsrt-proto] and a build that
+downloads it is a build that breaks when GitHub has a bad morning.
+`proto/SOURCE.md` records the URL and the commit SHA it was taken at.
+
+**Three files may branch on vehicle class**: `sim/profile.ts`, `sim/device.ts`,
+`sim/duty.ts`. Section 3.3 explains why, and a review should push any fourth
+back into `profile.ts`.
+
+---
+
+## 12. Docker
+
+**One image, one Compose file, standalone.** No database, no cache, no message
+broker, no second container. If `docker compose up` needs anything from the
+network, something has gone wrong.
+
+### 12.1 `Dockerfile`
+
+Multi-stage, Node 22 LTS, distroless or `-slim` runtime, non-root.
+
+```dockerfile
+# ---- build ----
+FROM node:22-slim AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+COPY proto ./proto
+RUN npm run build
+
+# ---- runtime ----
+FROM node:22-slim
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/dist ./dist
+COPY proto ./proto
+COPY data/bundle ./data/bundle
+USER node
+# No EXPOSE with a literal, and no port in CMD. PORT is read from the environment.
+CMD ["node", "dist/index.js"]
+```
+
+Rules the image must obey:
+
+- **No port literal in the `Dockerfile`.** `EXPOSE` is documentation only and
+  naming `8080` there while `PORT` says otherwise is a lie in a file people
+  read. It is omitted; `docker-compose.yml` publishes the mapping.
+- **The bundle is copied in**, so the image is self-contained and starts with no
+  network. Section 9.
+- **Non-root.** `USER node`.
+- **A `HEALTHCHECK` hitting `/readyz`**, using `PORT` from the environment, not a
+  literal.
+- Target image size under 250 MB. The bundle contributes about 0.5 MB.
+
+### 12.2 `docker-compose.yml`
+
+```yaml
+services:
+  fleet-sim:
+    build: .
+    image: transit-fleet-sim:local
+    env_file: [.env]
+    environment:
+      PORT: ${PORT:-8080}
+      HOST: 0.0.0.0
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${PORT:-8080}}
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch(`http://127.0.0.1:${PORT:-8080}/readyz`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+```
+
+- **Every value is `${VAR:-default}`.** Changing the published port is
+  `PORT=9000 docker compose up`, and nothing inside the image knows or cares.
+- `127.0.0.1` inside the healthcheck is the container talking to itself and is
+  the one place a loopback literal is correct. The lint rule of section 14
+  exempts `docker-compose.yml` explicitly and nothing else.
+- **No volumes.** There is no state (section 8.8), so a volume would only
+  create the illusion of one.
+- **No `depends_on`, no second service.** The sibling ticketing project runs its
+  own Compose stack and reaches this one over `PUBLIC_BASE_URL`. Merging the two
+  Compose files would create exactly the coupling section 1.1 forbids.
+
+`docker-compose.override.yml.example` ships a development variant that mounts
+`./src` and runs `tsx watch`, and is git-ignored once copied.
