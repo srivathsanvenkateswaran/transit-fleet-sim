@@ -2633,3 +2633,176 @@ Four rules for the recording:
    The band is the product.
 4. **Freeze the clock.** `SIM_CLOCK=<instant>` and a fixed `SIM_SEED` so the
    second take is the first take. Criterion 25 exists to make this safe.
+
+---
+
+## 16. Effort, risk, and what to cut
+
+### 16.1 The estimate
+
+Engineering days, one person, at the pace the sibling project has been moving.
+
+| Stage | Work | Days |
+|---|---|---|
+| **0. Spike** | Load the bundled GTFS subset, index one shape, walk one cursor along it, serve one JSON position. Settles whether `shape_dist_traveled` is usable as-is. | **0.5** |
+| **1. Bus geometry** | GTFS loader for all three source modes, cumulative-distance shape index, stop projection, `build-bundle.ts`, `SOURCE.md`. | **0.75** |
+| **2. Metro geometry** | Overpass fetch, way stitching, `metro-topology.json`, and the four-check integrity gate. | **0.5** |
+| **3. Fleet registry** | BIN parse/format, Luhn, plate parse and normalise, `classify`, temporal plate history, seeded fleet generation. | **0.5** |
+| **4. Simulation core** | The tick, the cursor, bus speed and dwell, the metro trapezoidal profile, headway dispatch, layovers, trip lifecycle, seeded PRNG. | **1.0** |
+| **5. Honesty models** | Coverage, fix interval and staleness, dropouts, positional noise, the duty state machine, mid-day swaps, the scenario surface. | **0.75** |
+| **6. HTTP surface** | `resolve` with the full body and the error taxonomy, `vehicle/{bin}/position`, `metro/arrivals`, `routes`, `healthz`, `readyz`. | **0.75** |
+| **7. GTFS-Realtime** | Vendor the `.proto`, both feeds, the uncertainty and `NO_DATA` rules, the JSON mirrors, caching headers. | **0.75** |
+| **8. Config and Docker** | `config.ts` with fail-fast validation, `.env.example`, Dockerfile, Compose. | **0.5** |
+| **9. Tests** | Layers A-D, the sixteen golden files, the four repository-hygiene tests. | **1.0** |
+| **10. Repo furniture** | README, LICENSE, `THIRD_PARTY_NOTICES.md`, `docs/consuming.md`, `docs/fidelity.md`, `demo.sh`, QR stickers. | **0.5** |
+| | **Total** | **7.5** |
+
+**Metro accounts for 2.0 of those 7.5 days**, and the scope addition genuinely
+moved the number. Bus-only, the same document is **5.5 days**. The metro
+increment is stage 2 in full (0.5), the trapezoidal speed profile and headway
+dispatch (0.25), the arrivals endpoint (0.5), metro handling in both feeds
+(0.25), the topology gate (0.25) and metro goldens and tests (0.25).
+
+**It was worth adding anyway**, and not out of politeness: the consuming app
+plans across both modes, so a bus-only tracking layer leaves half of every
+journey dark, and the mode contrast of section 2.3 turns out to be the single
+most demonstrable thing this service does.
+
+### 16.2 Is it achievable before 27 August? No, not in full.
+
+**Seven calendar days remain and this is the third of three parallel efforts.**
+Seven and a half engineering days of work does not fit alongside two other
+deliverables in seven days, and saying otherwise would be the same kind of
+overclaiming this document spends fifteen sections arguing against.
+
+The honest read:
+
+- **Stages 0, 1, 3, 4 (bus) and the resolve endpoint: high confidence.** These
+  are well-understood, the data is measured, and the spike settles the one
+  geometry unknown in half a day.
+- **Stage 2 (metro geometry): medium.** It depends on Overpass, on relation
+  quality for three specific lines, and on way-stitching that may need the
+  interpolation fallback more often than hoped. **It is the piece most likely to
+  take twice its estimate.**
+- **Stage 7 (GTFS-Realtime): medium-high.** Encoding is mechanical; the
+  uncertainty and `NO_DATA` rules are fiddly, and criteria 35-40 are strict.
+- **Stages 9 and 10: compressible to half, at a real cost.** Criterion 25
+  (determinism) and criterion 35 (mandatory uncertainty) must survive any
+  compression, because the first protects the demo and the second is the
+  honesty requirement itself.
+
+**The smallest shippable increment, named:**
+
+> **Stages 0, 1, 3, 4 (bus only), 5, and stage 6 cut to `/fleet/resolve` plus
+> `/fleet/vehicle/{bin}/position`, plus stage 8. No metro, no GTFS-Realtime, no
+> arrivals endpoint. 2.5 days.**
+
+That already delivers **everything the ticketing service needs**: the resolve
+contract, the check character, the scan-versus-typed asymmetry, the honest
+not-found taxonomy, both state machines, and the four honesty knobs. It runs in
+Docker with no download. It has no protobuf and no metro, which are the two
+things a *consuming app* wants and a *ticketing service* does not.
+
+**The next increment after that is metro geometry plus the arrivals endpoint
+(1.0 day), not GTFS-Realtime.** Half a journey with no live data is a more
+visible hole in a demo than a missing protobuf feed that the JSON endpoints
+already cover for one vehicle at a time.
+
+**Checkpoint: 24 August.** If stages 0, 1, 3, 4 and 5 are not done by then,
+ship the 2.5-day increment, record the demo against it, and write plainly that
+the feeds and the metro layer are next. An honest partial is worth more than a
+rushed whole, and it is consistent with everything else this project says about
+itself.
+
+### 16.3 Where this could genuinely go wrong
+
+| Risk | Likelihood | Impact | Response |
+|---|---|---|---|
+| **OSM relations for one of the three lines do not stitch into a continuous way** | Medium | Medium | The interpolated-segment fallback already handles it and surfaces it in `/fleet/routes`. Do not block on perfect track geometry. |
+| **`shape_dist_traveled` in the bundled feed is inconsistent with stop coordinates** | Medium | Medium | Stage 0 settles it in half a day. Fallback: recompute cumulative distance from haversine and ignore the column. |
+| **Criteria 35-40 turn out to be tedious against a real protobuf encoder** | Medium | Low | Assert against the JSON mirror, which is generated from the same `FeedMessage`. Cheaper and equally strict. |
+| **The sixteen golden files churn during development** | High | Low | Generate them last, after stage 6 stabilises. Generating them early is how a suite becomes noise. |
+| **A stray `Math.random()` makes the demo unreproducible** | Medium | **High** | Criterion 43 as a lint rule from day one, not at the end. The symptom - "it worked when I recorded it" - is miserable to chase. |
+| **Scope creep into a second city or a real-feed ingest mode** | Medium | Medium | Both are named in section 18 as explicitly not built. |
+| **BMTC feed licence question is answered unfavourably** | Low | Medium | `GTFS_SOURCE=url` already exists; delete `data/bundle/gtfs/` and the project still runs, one download later. §9.1. |
+| **Metro takes the whole week and the bus path never lands** | Low | **High** | **Build bus first, end to end, before touching metro.** The stage order above is not decorative. |
+
+### 16.4 The cut list, in the order to cut
+
+1. **`/gtfs-rt/trip-updates`.** The single-vehicle JSON endpoint already carries
+   `nextStops` with the same bands. Costs the protobuf demonstration, keeps the
+   honesty argument intact.
+2. **`/gtfs-rt/vehicle-positions`.** Same reasoning, one step later, because a
+   fleet-wide feed is the thing a *transit app* wants most.
+3. **The metro trapezoidal speed profile.** A constant speed with dwells is
+   visibly adequate; the profile is polish.
+4. **Metro entirely.** Costs half of every journey in the demo, so it goes late
+   in the list despite being the largest single saving.
+5. **The scenario control surface.** Wait for a dropout, or turn
+   `BUS_DROPOUT_RATE_PER_HOUR` up to 30 and take the demo footage.
+6. **The QR sticker script.** Print a QR from any generator; the URL is in
+   section 10.1.
+7. **The end-to-end test.** Layers A, B and C already cover the logic.
+
+**Never cut:** the check character, the not-found taxonomy, the two state
+machines, `meta.simulated`, mandatory `uncertainty`, determinism (criterion 25),
+or the fidelity table. Those seven are the project; everything else is surface.
+
+---
+
+## 17. Licences
+
+| Component | Licence | Obligation |
+|---|---|---|
+| **This repository** | **MIT** | None on anyone. It is what a public-good piece of infrastructure should carry, and it matches the sibling project. |
+| **`google/transit`** (`gtfs-realtime.proto`) | **Apache 2.0**[^gtfsrt-licence] | The `.proto` is vendored into `proto/`, so the Apache notice travels with it in `THIRD_PARTY_NOTICES.md`, along with the source URL and commit SHA in `proto/SOURCE.md`. |
+| **`Vonter/bmtc-gtfs`** | **No `LICENSE` file.**[^bmtc-gtfs] Default is all rights reserved. | Attribute in `THIRD_PARTY_NOTICES.md`, in `README.md` and in `data/bundle/SOURCE.md`, reproducing the upstream `CITATION.cff`. **State plainly that no licence file exists**, so nobody assumes MIT by proximity. Open an upstream issue asking for one and record its URL. Keep `GTFS_SOURCE=url` working so the bundle stays a cache. §9.1. |
+| **BMTC** (the underlying route and stop data) | Not separately licensed to this project. The feed's own `attributions.txt` names BMTC as operator and authority. | Attribute BMTC as the data authority. Claim no endorsement and no affiliation. |
+| **OpenStreetMap** (metro topology) | **ODbL 1.0**[^osm-copyright] | Attribute "© OpenStreetMap contributors" in the README, `THIRD_PARTY_NOTICES.md` and `data/bundle/SOURCE.md`. `data/bundle/metro-topology.json` is a **derived database** and is published **under ODbL**, stated in `THIRD_PARTY_NOTICES.md`. The source code remains MIT; the two coexist because the obligation attaches to the database, not to the software that reads it. |
+| **Namma Metro line names and colours** | Factual. | No obligation. Attribute BMRCL as the operator; claim no affiliation. |
+
+**The README must state, above the fold**, that this project is not affiliated
+with BMTC, BMRCL or any transport authority, and that every vehicle, plate and
+position it serves is fabricated.
+
+---
+
+## 18. Open questions
+
+Collected so they can be worked in one sitting. None blocks starting; the first
+two are half-day lookups that shape stage 0 and stage 2.
+
+| # | Question | How to settle it | Blocks |
+|---|---|---|---|
+| 1 | Is `shape_dist_traveled` in the bundled feed monotonic per shape and consistent with the stop coordinates? | Stage 0. Load five shapes, project their stops, compare against haversine. Half a day. | §8.2, the stage-1 estimate |
+| 2 | Do the OSM `route=subway` relations for Purple, Green and Yellow stitch into continuous ways, and how often is the interpolation fallback needed? | Run `fetch-metro-topology.ts` once and count `geometry: "interpolated"` segments. | §9.2, the stage-2 estimate |
+| 3 | The exact AIS-140 clause and figures for VLTD transmission frequency in normal and emergency states. | The ARAI standard is paywalled; the Odisha state protocol document is a scanned PDF.[^ais140-odisha] An OCR pass, or a request to ARAI. | Nothing. The 10-30 s range is well attested and the simulator's interval is configurable regardless. |
+| 4 | Whether BMRCL exposes any passenger-visible train or rake identifier. | Observation on a platform, or BMRCL's own signage standards. | Nothing. §4.4 argues the trip is the right identity even if a rake number exists. |
+| 5 | Whether BMTC operates a published internal fleet-numbering scheme the BIN could resemble. | BMTC's own vehicle documentation, or a photograph of a fleet number. | Nothing structural. §4.3. |
+| 6 | Can MobilityData's GTFS-Realtime validator run in CI without network egress? | Try it against a local URL in a CI job. Twenty minutes. | Nothing. The field assertions of §14.3 layer C stand alone. |
+| 7 | Should a future mode ingest a real GTFS-Realtime feed and republish it with this service's identity layer on top? | A design question, not a lookup. **Explicitly not built.** It would make the service useful against a real operator feed the day one becomes available, and it would also make every claim in §13 conditional on which mode is running. | Nothing. Named here so it is a decision rather than a drift. |
+| 8 | Does the consuming app want a WebSocket or SSE stream for a single tracked vehicle instead of polling `/fleet/vehicle/{bin}/position`? | Ask, after the app has polled for a week. | Nothing. Polling at 10 s is cheap and the endpoint exists precisely to make it cheap. |
+
+---
+
+[^ais140-wiki]: Automotive Industry Standard 140, "Intelligent Transportation Systems (ITS) - Requirements for Public Transport Vehicle Operation", published by the Automotive Research Association of India. https://en.wikipedia.org/wiki/Automotive_Industry_Standard_140
+[^ais140-morth]: On the MoRTH mandate and its scope for public service vehicles. https://www.autocarpro.in/news-national/ais-140-norm-public-transport-vehicles-mean-28696
+[^ais140-freq]: VLTD transmission intervals as reported by device vendors and integrators: 30 seconds while moving, longer while stationary, immediate on an emergency event. Secondary source; see open question 3. https://blog.fleetx.ai/blog-vltd-ais-140-vehicle-location-tracking-device-guide/
+[^ais140-odisha]: Odisha State Transport Authority, "AIS-140 Protocol", version 1.0, 20 September 2022. A scanned PDF; text not machine-extractable. https://vltd.odishatransport.gov.in/ODSTA-AIS-140_Protocol_Version_1.0.20092022.pdf
+[^gtfsrt-proto]: GTFS-Realtime protobuf definition. Current `gtfs_realtime_version` is `"2.0"`; package `transit_realtime`. https://gtfs.org/documentation/realtime/proto/ and the canonical file at https://github.com/google/transit/tree/master/gtfs-realtime
+[^gtfsrt-ref]: GTFS-Realtime reference: `FeedMessage`, `FeedHeader`, `VehiclePosition`, `Position`, `TripDescriptor`, `VehicleDescriptor`, `TripUpdate`, `StopTimeUpdate`, `StopTimeEvent`, and the `uncertainty` and `NO_DATA` semantics quoted in §2.2 and §7.3. https://gtfs.org/documentation/realtime/reference/
+[^gtfsrt-tripupdates]: GTFS-Realtime TripUpdates, including "The uncertainty roughly specifies the expected error in true delay as an integer in seconds", the 240-second worked example, the at-most-one-TripUpdate-per-trip rule, and delay propagation. https://gtfs.org/documentation/realtime/feed-entities/trip-updates/
+[^gtfsrt-bp]: GTFS-Realtime best practices: refresh at least every 30 seconds; data within the feed no older than 90 seconds for Trip Updates and Vehicle Positions. https://gtfs.org/documentation/realtime/realtime-best-practices/ and https://github.com/google/transit/blob/master/gtfs-realtime/best-practices/best-practices.md
+[^gtfsrt-licence]: `google/transit` is licensed Apache 2.0. https://github.com/google/transit/blob/master/LICENSE
+[^luhn]: The Luhn algorithm, specified in ISO/IEC 7812-1 Annex B. Detects all single-digit errors and all adjacent transpositions except `09` <-> `90`. https://en.wikipedia.org/wiki/Luhn_algorithm
+[^damm]: The Damm algorithm. Detects all single-digit errors and all adjacent transpositions, with no exceptions. https://en.wikipedia.org/wiki/Damm_algorithm
+[^plate-format]: Vehicle registration plates of India: two-letter state code, district RTO number, one-to-three-letter series omitting `I` and `O`, four-digit serial; and the Bharat (BH) series. Rule 50, Central Motor Vehicles Rules 1989. https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_India
+[^nammametro]: Namma Metro: operator BMRCL; Purple Line 37 stations / 43.49 km, Green Line 32 stations / 33.46 km, Yellow Line 16 stations / 19.15 km; services 05:00-00:00 with headways varying 3-15 minutes; average speed 35 km/h, maximum 80 km/h; Urbalis 200 automatic train control on Phase 1. https://en.wikipedia.org/wiki/Namma_Metro
+[^yellowline]: Yellow Line: opened 11 August 2025, CBTC signalling, driverless operation, rolling stock from CRRC Nanjing Puzhen with Titagarh Rail Systems. https://en.wikipedia.org/wiki/Yellow_Line_(Namma_Metro)
+[^metro-headway]: Purple and Green Line frequency reporting. https://www.deccanherald.com/india/karnataka/bengaluru/metro-frequency-go-up-two-1914371
+[^yellow-headway]: Yellow Line peak headway reduced to 9 minutes, off-peak 14 minutes. https://www.deccanherald.com/india/karnataka/bengaluru/bengaluru-metro-yellow-line-peak-hour-wait-time-reduces-to-9-mins-off-peak-hours-to-14-mins-3913383
+[^bmtc-gtfs]: `Vonter/bmtc-gtfs`, an unofficial GTFS dataset for BMTC scraped from the Namma BMTC app. The README's own caveat: the source "is not completely accurate, and is particularly unreliable for timetables and stop timings". No `LICENSE` file at the repository root; a `CITATION.cff` names Vivek Matthew as author. https://github.com/Vonter/bmtc-gtfs
+[^bmtc-fleet]: BMTC's fleet passed 7 000 buses in 2025, roughly one in five of them electric. https://www.sustainable-bus.com/news/bangalore-buses-one-fifth-fleet-7000/
+[^blr-speed]: Bengaluru's measured average traffic speed, about 17.4 km/h city-wide and about 18 km/h in rush hour. https://www.deccanherald.com/india/karnataka/bengaluru/bengaluru-third-slowest-city-in-the-world-3352211
+[^osm-route]: OpenStreetMap `route=subway` relation, whose members are ordered. https://wiki.openstreetmap.org/wiki/Tag:route%3Dsubway
+[^osm-copyright]: OpenStreetMap data is licensed under the Open Database Licence (ODbL) 1.0 and requires attributing "© OpenStreetMap contributors". https://www.openstreetmap.org/copyright
