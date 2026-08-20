@@ -22,6 +22,9 @@ export const config = {
     .split(',')
     .map((route) => route.trim())
     .filter(Boolean),
+  busesPerRoute: parsePositiveInteger(process.env.BUSES_PER_ROUTE ?? '6', 'BUSES_PER_ROUTE'),
+  busHubCode: parseHubCode(process.env.BUS_HUB_CODE ?? 'BLR', 'BUS_HUB_CODE'),
+  simSeed: parseInteger(process.env.SIM_SEED ?? '1', 'SIM_SEED'),
   geometryMaxStopOffsetMetres: parsePositiveNumber(
     process.env.GEOMETRY_MAX_STOP_OFFSET_METRES ?? '150',
     'GEOMETRY_MAX_STOP_OFFSET_METRES',
@@ -40,6 +43,22 @@ function parsePositiveNumber(raw: string, name: string): number {
   const value = Number(raw)
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${name} must be a positive number, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
+function parseInteger(raw: string, name: string): number {
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`${name} must be a safe integer, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
+function parseHubCode(raw: string, name: string): string {
+  const value = raw.toUpperCase()
+  if (!/^[A-HJ-NP-Z]{3}$/.test(value)) {
+    throw new Error(`${name} must be three letters without I or O, got ${JSON.stringify(raw)}`)
   }
   return value
 }
