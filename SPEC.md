@@ -723,3 +723,397 @@ defaults; every one is an environment variable (section 10).
 and a hedged bus leg, from the same service, at the same moment.** That is the
 single most useful thing this project produces for the consuming app, and
 section 15 builds the demo around it.
+
+---
+
+## 6. The interface between the projects
+
+### 6.1 `GET /fleet/resolve`
+
+**One endpoint for both entry paths.** A rider either scans a QR code stuck on
+the bus, which encodes a URL ending `?code=<BIN>`, or types a code by hand. Both
+land here.
+
+```
+GET /fleet/resolve?code=BLR-04127          # BIN, from a scan or typed
+GET /fleet/resolve?code=KA01F1234          # plate, typed
+GET /fleet/resolve?code=KA-01-F-1234       # plate, typed with separators
+```
+
+| Parameter | Required | Values | Meaning |
+|---|---|---|---|
+| `code` | yes | 1-32 chars | A BIN or a plate, in any casing, with or without separators. |
+| `entry` | no | `scan` \| `manual` (default `manual`) | How the rider supplied the code. Drives `confirmation` in the response. Section 6.4. |
+| `at` | no | RFC 3339 instant | Resolve as of this moment instead of now. For tests and for a frozen demo. Rejected with `400` unless `SIM_ALLOW_TIME_TRAVEL=true`. |
+
+**`entry` defaults to `manual`, deliberately.** A caller that forgets to set it
+gets the *stricter* behaviour, which is a confirmation step it did not ask for,
+rather than the weaker behaviour of skipping a check the rider needed.
+
+**Why one endpoint and not two.** A rider does not know or care which kind of
+code they are holding, and the QR path and the typed path converge on the same
+question: *which bus is this, and what is it doing?* Two endpoints would push
+format detection into every caller and would double the surface that has to stay
+consistent. The formats are disjoint by construction (section 6.3), so the
+disambiguation is free.
+
+### 6.2 The response, in full
+
+`200 OK`, `Content-Type: application/json`, `Cache-Control: no-store`.
+
+```jsonc
+{
+  "bin": "BLR-04127",
+  "matchedOn": "bin",                      // "bin" | "plate"
+
+  "vehicle": {
+    "class": "bus",                        // "bus" | "metro"
+    "plate": {
+      "display": "KA-01-F-1234",           // what a UI shows
+      "normalised": "KA01F1234",           // what a caller compares
+      "since": "2026-02-14"                // ISO date this plate became current
+    },
+    "plateAbsentReason": null,             // "metro_no_plate" when plate is null
+    "hub": { "code": "BLR", "name": "Bengaluru Central" }
+  },
+
+  "duty": {
+    "status": "confirmed",                 // confirmed|inferred|unknown|out_of_service
+    "confidence": null,                    // number 0..1 iff status == "inferred"
+    "route": {
+      "id": "1066",                        // GTFS route_id
+      "number": "500-D",                   // GTFS route_short_name. The rider-facing one.
+      "name": "Central Silk Board to Hebbala Bridge",
+      "nameLocal": null                    // Kannada, when the source carries it
+    },
+    "headsign": "Hebbala Bridge",
+    "directionId": 0,                      // GTFS direction_id
+    "trip": {
+      "id": "1042",                        // GTFS trip_id
+      "startTime": "09:15:00",             // GTFS noon-relative time, may exceed 24h
+      "startDate": "20260820",             // GTFS YYYYMMDD, service date not calendar date
+      "startedAt": "2026-08-20T03:45:00Z"  // RFC 3339 instant, unambiguous
+    },
+    "since": "2026-08-20T03:45:00Z",       // when this duty was assigned
+    "source": "roster",                    // "roster" | "position_match" | "none"
+    "alternatives": [],                    // candidate duties when status == "unknown"
+    "reason": null                         // set when status is unknown|out_of_service
+  },
+
+  "tracking": {
+    "state": "live",                       // live|stale|dark|untracked
+    "fixAgeSeconds": 14,                   // age of `observedAt` at response time
+    "observedAt": "2026-08-20T09:41:12Z",  // when the fix was TAKEN, not served
+    "servedAt":   "2026-08-20T09:41:26Z",  // when this response was built
+    "position": {
+      "lat": 12.97843,
+      "lon": 77.64081,
+      "bearing": 118.4,                    // degrees clockwise from true north
+      "speedKph": 21.6,
+      "accuracyMetres": 12
+    },
+    "progress": {
+      "nextStop": {
+        "id": "20985",
+        "name": "Domlur",
+        "nameLocal": "ದೊಮ್ಮಲೂರು",
+        "sequence": 14                     // GTFS stop_sequence within the trip
+      },
+      "currentStatus": "IN_TRANSIT_TO",    // GTFS-RT VehicleStopStatus
+      "distanceAlongRouteMetres": 8241.5,
+      "routeLengthMetres": 21903.0
+    },
+    "source": "simulated_gnss",            // "simulated_gnss" | "simulated_signalling"
+    "reason": null                         // why not live; see below
+  },
+
+  "confirmation": {
+    "required": true,
+    "prompt": "Check the bus in front of you.",
+    "verify": [
+      { "label": "Number plate", "value": "KA-01-F-1234" },
+      { "label": "Route",        "value": "500-D" }
+    ]
+  },
+
+  "meta": {
+    "simulated": true,                     // ALWAYS true. Never omitted.
+    "seed": 1,
+    "generatedAt": "2026-08-20T09:41:26Z"
+  }
+}
+```
+
+**Field rules a builder must not get wrong:**
+
+- **`meta.simulated` is always present and always `true`.** It is not
+  configurable. Any consumer can assert it and refuse to bill a rider against
+  it.
+- **`bin` is always the canonical hyphenated form**, whatever was passed in.
+- **`matchedOn` tells the caller which path resolved.** A caller that asked with
+  a plate and got `matchedOn: "bin"` has a bug on its side.
+- **`plate.since` is a date, not an instant.** Registrations change on a day,
+  not at a moment, and pretending to a second of precision would be fabrication.
+- **`duty.trip.startDate` is a GTFS *service* date.** A trip starting at 00:30
+  belongs to the previous service date, and `startTime` may exceed `24:00:00` -
+  this is normal in GTFS and a consumer must not parse it as a wall clock.
+  `startedAt` is provided as an unambiguous RFC 3339 instant so no consumer has
+  to implement that rule.
+- **`tracking.observedAt` and `tracking.servedAt` are different fields on
+  purpose**, and `fixAgeSeconds` is their difference. A consumer must render age
+  from `fixAgeSeconds`, never from `servedAt` alone, because its own clock may
+  be wrong.
+- **`tracking.position` is non-null in `live`, `stale` and `dark`**, and `null`
+  only in `untracked`. In `dark` it is the last known fix, and `fixAgeSeconds`
+  is how stale it is. **Never extrapolate a dark position forward**; the
+  simulator does not, and neither should a consumer.
+- **`duty.route` is `null`** when `duty.status` is `unknown` or
+  `out_of_service`. A consumer must handle that; it is not an error.
+
+**`tracking.reason` values**, non-null whenever `state != "live"`:
+
+| Value | State |
+|---|---|
+| `fix_ageing` | `stale` |
+| `no_fix_since` | `dark`, general dropout |
+| `device_offline` | `dark`, modelled as an unpowered or failed device |
+| `no_device_fitted` | `untracked` |
+
+**`duty.reason` values**, non-null whenever `status` is `unknown` or
+`out_of_service`:
+
+| Value | Status |
+|---|---|
+| `ambiguous_trip_match` | `unknown` - two or more candidates fit |
+| `off_pattern` | `unknown` - the vehicle is not on any known shape |
+| `roster_swapped` | `unknown` - the roster record was invalidated mid-day |
+| `deadheading` | `out_of_service` |
+| `on_break` | `out_of_service` |
+| `withdrawn` | `out_of_service` |
+
+**`duty.alternatives[]`**, present and possibly non-empty only when `status` is
+`unknown`, each entry `{ route: {...}, headsign, directionId, confidence }`,
+sorted by `confidence` descending, capped at three. A consumer may show them as
+"one of these"; it must not pick one.
+
+### 6.3 Disambiguating a BIN from a plate
+
+Normalise first: uppercase, strip everything that is not `[A-Z0-9]`. Then:
+
+| Normalised matches | Interpreted as |
+|---|---|
+| `^[A-Z]{3}[0-9]{5}$` | BIN |
+| `^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$` | plate, standard series |
+| `^[0-9]{2}BH[0-9]{4}[A-Z]{1,2}$` | plate, BH series |
+| anything else | `400 malformed_code` |
+
+**These are disjoint, and the proof is structural, not empirical.** A BIN opens
+with exactly three letters and then only digits. A standard plate opens with
+exactly two letters, then at least one digit; even the shortest possible plate
+with no series letters (`KA011234`, two letters then six digits) cannot match
+the BIN pattern, which requires a third leading letter. A BH plate opens with a
+digit. **This must be a test, not a comment** (section 14).
+
+**Order of evaluation is BIN first**, because it is the tightest pattern, and
+because a scan always produces a BIN and the scan path should never touch plate
+parsing.
+
+**A BIN that fails its check digit is `400`, not `404`.** The distinction is the
+whole reason the check digit exists:
+
+```
+GET /fleet/resolve?code=BLR-04128
+-> 400 {
+     "error": "bad_check_character",
+     "message": "That code did not pass its own checksum. Please retype it.",
+     "code": "BLR-04128",
+     "hint": "check_digit"
+   }
+```
+
+The service **must not** look this up. `BLR-04128` might be a real BIN under a
+different scheme, or a real vehicle if someone regenerated the fleet; either way
+the rider mistyped and the correct answer is "retype it", not a lookup that
+might succeed against the wrong bus. **A check-digit failure returns before any
+registry access**, and section 14 asserts it.
+
+### 6.4 A scan and a typed code are not the same event
+
+They differ in exactly one way, and the difference is `confirmation`.
+
+| | Scan (`entry=scan`) | Typed (`entry=manual`) |
+|---|---|---|
+| Check character | Validated. A scanned QR that fails is a corrupt or forged sticker, and returns `400 bad_check_character` like any other. | Validated, and this is where it earns its keep. |
+| `confirmation.required` | `false` | **`true`** |
+| What the app does | Proceeds | **Shows the plate and route number and waits for the rider to confirm** |
+
+**Why the asymmetry.** A scan is a *physical act performed at the vehicle*. The
+rider is standing at the bus, the QR is stuck to the bus, and the act of
+scanning is itself the confirmation that this code belongs to this vehicle.
+Asking them to re-confirm a plate they just walked up to is friction that
+teaches them to tap through confirmations.
+
+A typed code has no such anchor. The rider may have copied it from a screenshot,
+from a friend's message, from a stop-side sign, or mistyped a digit that passed
+the checksum by luck. **The check character catches a typo; it does not catch a
+correct code for the wrong bus.** Only the rider's eyes can do that, and
+`confirmation.verify` gives them exactly the two facts they can check from where
+they stand: the plate and the route number - the two things painted on the
+vehicle (section 4.5).
+
+**The consuming app must honour this.** `confirmation.required: true` means a
+blocking step before the code is used for anything. Specifically:
+
+- The ticketing service **must not bind a ticket to a BIN** whose response
+  carried `confirmation.required: true` until the rider has confirmed.
+- The confirmation UI **must show `confirmation.verify` verbatim** rather than
+  re-deriving labels, so that adding a third fact later does not require an app
+  release.
+- `confirmation.prompt` is copy, and the app may replace it; the `verify` array
+  is data, and the app may not.
+
+**When `duty.status` is `unknown`, there is no route to confirm.** The response
+then carries a single-entry `verify` array with the plate only, and
+`confirmation.prompt` changes to name what cannot be checked. An app must render
+whatever length array it receives.
+
+### 6.5 Not-found, told honestly
+
+**"No such BIN" and "that BIN is not in service today" are different facts and
+must not share a status code path.** A rider who typed a wrong code needs to
+retype; a rider looking at a real bus that is parked in a depot needs to be told
+that, not told their code is wrong.
+
+| Situation | Status | `error` | Body carries |
+|---|---|---|---|
+| Malformed, matches no pattern | `400` | `malformed_code` | the submitted code |
+| BIN pattern, check digit fails | `400` | `bad_check_character` | the submitted code, `hint: "check_digit"` |
+| Well-formed BIN, no registry row | `404` | `unknown_bin` | the normalised BIN |
+| Well-formed plate, never registered | `404` | `unknown_plate` | the normalised plate |
+| Plate was current, is not now | `404` | `plate_no_longer_current` | `retiredOn`, and **nothing else** |
+| **BIN is real, has no duty today** | **`200`** | - | the full response, `duty.status: "out_of_service"`, `duty.reason: "withdrawn"` |
+| BIN is real, is a metro vehicle | `422` | `not_a_resolvable_code` | `class: "metro"`, `seeInstead: "/fleet/metro/arrivals"` |
+| `at` supplied, time travel disabled | `400` | `time_travel_disabled` | - |
+
+**The sixth row is the important one and it is a `200`, not a `404`.** A bus
+that exists and is not running today is a successful resolution of a real
+identifier. The answer to "what is this bus doing" is "nothing today", and that
+is information, not an error. Returning `404` would tell the rider their code
+was wrong when it was right, which is exactly the failure this section exists to
+prevent.
+
+**`plate_no_longer_current` returns the retirement date and nothing else.**
+Specifically **not** the BIN, and **not** the vehicle's current plate. Resolving
+a retired plate to the vehicle that used to wear it would let anyone holding an
+old ticket enumerate the current fleet, and the rider standing at a bus stop
+gains nothing from it. The honest and sufficient answer is:
+
+```
+GET /fleet/resolve?code=KA01FA9902
+-> 404 {
+     "error": "plate_no_longer_current",
+     "message": "That registration was retired on 14 February 2026.",
+     "retiredOn": "2026-02-14"
+   }
+```
+
+**Every error body has the same three keys** - `error`, `message`, and zero or
+more context keys - and `message` is human-readable English safe to show a
+rider. Localisation is the consuming app's job; the machine-readable `error`
+string is the contract.
+
+### 6.6 `GET /fleet/metro/arrivals`
+
+Metro needs its own endpoint because the rider's question is different. On a
+platform, nobody asks "which train is this"; they ask **"when is the next one
+towards where I am going, and which platform"**.
+
+```
+GET /fleet/metro/arrivals?station=<stopId>&towards=<terminalStopId>&limit=3
+```
+
+| Parameter | Required | Meaning |
+|---|---|---|
+| `station` | yes | GTFS `stop_id` of the station |
+| `towards` | no | GTFS `stop_id` of a terminal. Omit for both directions. |
+| `line` | no | Line id (`purple`, `green`, `yellow`). Omit for all lines serving the station. |
+| `limit` | no | 1-10, default 3, per direction |
+
+`200 OK`:
+
+```jsonc
+{
+  "station": {
+    "id": "MTR-PPL-018",
+    "name": "Indiranagar",
+    "nameLocal": "ಇಂದಿರಾನಗರ"
+  },
+  "arrivals": [
+    {
+      "line":     { "id": "purple", "name": "Purple Line",
+                    "nameLocal": "ನೇರಳೆ ಮಾರ್ಗ", "colour": "#9C27B0" },
+      "towards":  { "stopId": "MTR-PPL-037", "name": "Whitefield (Kadugodi)",
+                    "nameLocal": "ವೈಟ್‌ಫೀಲ್ಡ್" },
+      "platform": "2",
+      "eta": {
+        "seconds": 214,
+        "uncertaintySeconds": 20,          // ALWAYS present. Never null.
+        "basis": "tracked"                 // "tracked" | "scheduled"
+      },
+      "tracking": { "state": "live", "fixAgeSeconds": 3,
+                    "source": "simulated_signalling" },
+      "duty":     { "status": "confirmed", "confidence": null },
+      "trip":     { "id": "MTR-PPL-U-0413", "startTime": "09:22:00",
+                    "startDate": "20260820" },
+      "vehicle":  { "bin": "MTR-00187", "displayToRider": false }
+    }
+  ],
+  "meta": { "simulated": true, "seed": 1,
+            "generatedAt": "2026-08-20T09:41:26Z" }
+}
+```
+
+**Rules:**
+
+- **`vehicle.displayToRider` is `false` and is never `true`.** It exists so that
+  a reviewer reading the consuming app's code can see the rule being obeyed
+  rather than assumed. The BIN is here for correlation with
+  `/fleet/vehicle/{bin}/position` and the GTFS-RT feeds, and for nothing a rider
+  sees. Section 4.5.
+- **`eta.uncertaintySeconds` is always present**, on the same principle as
+  section 7.3: a metro ETA is *good*, not *certain*, and a number without a band
+  invites the app to render a countdown it cannot support.
+- **`eta.basis: "scheduled"`** means no train was tracked for this slot and the
+  figure comes from the headway model. The uncertainty is correspondingly wide.
+  The consuming app must render the two differently.
+- Arrivals are sorted by `eta.seconds` ascending, per direction, and a train
+  already at the platform has `eta.seconds: 0` with
+  `tracking.progress.currentStatus: "STOPPED_AT"` in the position endpoint.
+
+### 6.7 What the ticketing service may and may not store
+
+This is a boundary rule, and violating it is how two services become one.
+
+**May store, frozen at issue, as provenance:**
+
+| Field | Why it is safe |
+|---|---|
+| `bin` | Immutable by definition. This is the join key. |
+| `plate.display` and `plate.since` | A record of what was painted on the bus at that moment. |
+| `duty.route.number` and `duty.headsign` | A record of what the bus was running. |
+| `meta.generatedAt` | **Required.** Without it the copy has no as-of date and cannot be reasoned about. |
+
+**Must not store, or store and then trust:**
+
+| Field | Why |
+|---|---|
+| `tracking.*` | Live data. A cached position is a wrong position within a minute. |
+| `duty.status`, `duty.confidence` | Change during the trip. |
+| Anything as *current* | Every stored field is a historical record. A ticket that says "Bus KA-01-F-1234" is saying "the bus this was issued against was, on 20 August 2026, wearing that plate". |
+
+**The rule in one line:** *the ticketing service stores what was true when the
+ticket was issued, and calls this service for what is true now.*
+
+A ticket rendering should be able to say, in small type, "vehicle details as of
+20 August 2026", and that is the entire reason `meta.generatedAt` is not
+optional.
