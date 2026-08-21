@@ -212,6 +212,9 @@ resolve-body goldens are under [`tests/api/goldens/`](tests/api/goldens/), and
 the criterion-by-criterion result is
 [`docs/acceptance-audit.md`](docs/acceptance-audit.md).
 
+Every push and pull request runs the test, lint, typecheck and build gates in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 ## Attribution
 
 - Bus route, stop and shape data from [`Vonter/bmtc-gtfs`](https://github.com/Vonter/bmtc-gtfs)
