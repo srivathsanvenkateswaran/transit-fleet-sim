@@ -4,7 +4,7 @@ import { loadGtfs } from '../../src/geometry/loadGtfs.js'
 import type { SimClock } from '../../src/sim/clock.js'
 import { defaultBusDeviceProfile } from '../../src/sim/device.js'
 import { defaultBusMotionProfile } from '../../src/sim/profile.js'
-import { SimWorld } from '../../src/sim/world.js'
+import { SimWorld, createWorld } from '../../src/sim/world.js'
 
 const START = new Date('2026-08-20T03:00:00Z')
 
@@ -51,5 +51,12 @@ describe('simulation world', () => {
     world.tickAt(later)
     expect(world.observe(bin, later)?.tracking.position).not.toEqual(before?.tracking.position)
     expect(world.status().lastTickAt).toBe(later.toISOString())
+  })
+
+  it('loads the bundled metro topology into readiness status', async () => {
+    const fleet = generateFleet({ seed: 7, routes: ['500-D'], busesPerRoute: 1 })
+    const world = await createWorld(fleet)
+    expect(world.status(world.now()).metroLines).toBe(3)
+    await world.stop()
   })
 })

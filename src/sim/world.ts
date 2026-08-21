@@ -1,5 +1,6 @@
 import { config } from '../config.js'
 import { loadGtfs, type GtfsStopTime, type LoadedGtfs } from '../geometry/loadGtfs.js'
+import { loadMetroTopology } from '../geometry/metroTopology.js'
 import { positionAt } from '../geometry/shape.js'
 import type {
   CreateWorld,
@@ -34,6 +35,7 @@ import {
 import { defaultBusMotionProfile, type BusMotionProfile } from './profile.js'
 
 export interface SimWorldOptions {
+  readonly metroLines?: number
   readonly clock?: SimClock
   readonly tickMs?: number
   readonly speedup?: number
@@ -57,7 +59,11 @@ export class SimWorld implements WorldPort {
   #lastTickAt: Date
   #tickLagMs = 0
 
-  constructor(gtfs: LoadedGtfs, fleet: readonly FleetMember[], options: SimWorldOptions = {}) {
+  constructor(
+    gtfs: LoadedGtfs,
+    fleet: readonly FleetMember[],
+    options: SimWorldOptions = {},
+  ) {
     this.#gtfs = gtfs
     this.#clock = options.clock ?? createClock(config.simClock)
     this.#tickMs = options.tickMs ?? config.simTickMs
@@ -65,6 +71,7 @@ export class SimWorld implements WorldPort {
     this.#profile = options.profile ?? defaultBusMotionProfile
     this.#deviceProfile = options.deviceProfile ?? defaultBusDeviceProfile
     this.#dutyProfile = options.dutyProfile ?? defaultBusDutyProfile
+    this.#metroLines = options.metroLines ?? 0
     this.#lastTickAt = this.#clock.now()
     for (const bus of dispatchInitialFleet(fleet, gtfs, this.#profile, this.#lastTickAt)) {
       this.#buses.set(bus.member.bin, bus)
@@ -138,13 +145,15 @@ export class SimWorld implements WorldPort {
     return {
       geometryLoaded: true,
       routes: this.#gtfs.routes.size,
-      metroLines: 0,
+      metroLines: this.#metroLines,
       vehicles: this.#buses.size,
       lastTickAt: this.#lastTickAt.toISOString(),
       tickLagMs: this.#tickLagMs,
       seed: this.#profile.seed,
     }
   }
+
+  readonly #metroLines: number
 
   async start(): Promise<void> {
     if (this.#timer !== null) return
@@ -277,5 +286,6 @@ function serviceDate(at: Date, timezone: string): string {
 
 export const createWorld: CreateWorld = async (fleet) => {
   const gtfs = await loadGtfs()
-  return new SimWorld(gtfs, fleet)
+  const metro = await loadMetroTopology(config.metroTopologyPath)
+  return new SimWorld(gtfs, fleet, { metroLines: metro.lines.length })
 }
