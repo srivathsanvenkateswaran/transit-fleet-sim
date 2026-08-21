@@ -19,6 +19,11 @@ describe('configuration', () => {
     expect(() => loadConfig({ GTFS_SOURCE: 'path' })).toThrow('GTFS_PATH is required')
   })
 
+  it('rejects impossible or reversed peak windows', () => {
+    expect(() => loadConfig({ BUS_PEAK_WINDOWS: '25:00-26:00' })).toThrow('BUS_PEAK_WINDOWS')
+    expect(() => loadConfig({ BUS_PEAK_WINDOWS: '10:00-09:00' })).toThrow('BUS_PEAK_WINDOWS')
+  })
+
   it('keeps env.example exactly aligned with every named environment variable', async () => {
     const source = await readFile(new URL('../../src/config.ts', import.meta.url), 'utf8')
     const example = await readFile(new URL('../../.env.example', import.meta.url), 'utf8')

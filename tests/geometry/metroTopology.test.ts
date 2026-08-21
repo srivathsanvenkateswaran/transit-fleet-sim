@@ -13,4 +13,8 @@ describe('bundled metro topology', () => {
     expect(topology.lines.find((line) => line.id === 'green')?.segments.every((segment) => segment.geometry === 'interpolated')).toBe(true)
     expect(topology.lines.find((line) => line.id === 'purple')?.segments.every((segment) => segment.geometry === 'osm')).toBe(true)
   })
+
+  it('applies the configured station-gap limit', async () => {
+    await expect(loadMetroTopology(config.metroTopologyPath, 1)).rejects.toThrow(/station gap exceeds 1m/)
+  })
 })

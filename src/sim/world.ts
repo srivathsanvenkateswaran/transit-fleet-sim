@@ -286,6 +286,6 @@ function serviceDate(at: Date, timezone: string): string {
 
 export const createWorld: CreateWorld = async (fleet) => {
   const gtfs = await loadGtfs()
-  const metro = await loadMetroTopology(config.metroTopologyPath)
+  const metro = await loadMetroTopology(config.metroTopologyPath, config.metroMaxStationGapMetres)
   return new SimWorld(gtfs, fleet, { metroLines: metro.lines.length })
 }

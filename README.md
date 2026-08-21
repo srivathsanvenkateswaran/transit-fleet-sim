@@ -69,7 +69,7 @@ journey planned across both modes should visibly behave differently on each leg.
 | Coverage | Partial by default | Complete |
 | Dark periods | Routine | Rare, and an incident |
 | Duty certainty | Often inferred | Almost always confirmed |
-| Rider-verifiable identity | The number plate | The line, direction and platform |
+| Rider-verifiable identity | The number plate | The line, direction and destination |
 
 ## Two questions, never collapsed into one
 
@@ -99,7 +99,7 @@ The BIN is the stable spine.
 
 **The interface rule: show the rider what they can verify with their eyes.** For
 a bus that is the plate and the route number. For a train it is the line, the
-direction, the destination and the platform. **The BIN never appears in an
+direction and the destination. **The BIN never appears in an
 interface**; it is plumbing, and its one visible role is provenance on a ticket.
 
 The BIN carries a check character, so a single mistyped digit fails on the
@@ -200,8 +200,8 @@ set `SIM_CLOCK` to an RFC 3339 instant to freeze every response.
 
 ## Status
 
-**The bus and ticketing increment plus metro topology and arrivals are
-implemented.** It includes the
+**The bus and ticketing increment plus metro topology and an honest arrivals
+refusal are implemented.** It includes the
 offline GTFS bundle, geometry, Damm-checked fleet identity, deterministic bus
 movement, independent duty and tracking state machines, resolve and
 single-vehicle JSON endpoints, probes, config and Docker, plus bundled OSM

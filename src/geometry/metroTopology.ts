@@ -38,13 +38,13 @@ export interface MetroTopology {
   readonly lines: readonly MetroLine[]
 }
 
-export async function loadMetroTopology(path: string): Promise<MetroTopology> {
+export async function loadMetroTopology(path: string, maxStationGapMetres = 4000): Promise<MetroTopology> {
   const raw = JSON.parse(await readFile(path, 'utf8')) as MetroTopology
-  validateMetroTopology(raw)
+  validateMetroTopology(raw, maxStationGapMetres)
   return raw
 }
 
-export function validateMetroTopology(topology: MetroTopology): void {
+export function validateMetroTopology(topology: MetroTopology, maxStationGapMetres = 4000): void {
   const minimums: Record<string, number> = { purple: 37, green: 32, yellow: 16 }
   for (const line of topology.lines) {
     const minimum = minimums[line.id]
@@ -60,8 +60,8 @@ export function validateMetroTopology(topology: MetroTopology): void {
       const previous = line.stations[index - 1]
       const current = line.stations[index]
       if (previous === undefined || current === undefined) continue
-      if (haversineMetres(previous, current) > 4000) {
-        throw new Error(`Metro station gap exceeds 4000m on ${line.id}`)
+      if (haversineMetres(previous, current) > maxStationGapMetres) {
+        throw new Error(`Metro station gap exceeds ${maxStationGapMetres}m on ${line.id}`)
       }
     }
   }

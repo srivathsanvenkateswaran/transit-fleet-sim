@@ -93,8 +93,15 @@ function route(
   const positionMatch = /^\/fleet\/vehicle\/([^/]+)\/position$/.exec(url.pathname)
   if (positionMatch !== null) {
     const encodedBin = positionMatch[1]
+    let requestedBin: string
+    try {
+      requestedBin = decodeURIComponent(encodedBin ?? '')
+    } catch {
+      send(response, 400, errors.malformedCode(encodedBin ?? ''))
+      return
+    }
     const result = vehiclePosition(
-      decodeURIComponent(encodedBin ?? ''),
+      requestedBin,
       world,
       registry,
       predictionHorizon,

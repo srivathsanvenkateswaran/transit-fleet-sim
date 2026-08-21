@@ -364,7 +364,24 @@ class Validation {
 
   peakWindows(name: string, fallback: string): string {
     const raw = this.raw(name, fallback)
-    if (/^\d{2}:\d{2}-\d{2}:\d{2}(,\d{2}:\d{2}-\d{2}:\d{2})*$/.test(raw)) return raw
+    const windows = raw.split(',')
+    if (
+      windows.length > 0 &&
+      windows.every((window) => {
+        const match = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(window)
+        if (match === null) return false
+        const [, startHour, startMinute, endHour, endMinute] = match
+        const start = Number(startHour) * 60 + Number(startMinute)
+        const end = Number(endHour) * 60 + Number(endMinute)
+        return (
+          Number(startHour) < 24 &&
+          Number(endHour) < 24 &&
+          Number(startMinute) < 60 &&
+          Number(endMinute) < 60 &&
+          start < end
+        )
+      })
+    ) return raw
     this.issue(`${name} must be comma-separated HH:MM-HH:MM windows`)
     return fallback
   }

@@ -80,4 +80,10 @@ describe('HTTP server', () => {
       expect((await response.json()) as object).toHaveProperty('error')
     }
   })
+
+  it('returns a client error for malformed vehicle path encoding', async () => {
+    const response = await fetch(`${baseUrl}/fleet/vehicle/%E0%A4%A/position`)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: 'malformed_code' })
+  })
 })
