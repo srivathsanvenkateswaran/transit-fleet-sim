@@ -41,6 +41,17 @@ describe('HTTP server', () => {
     await once(server, 'close')
   })
 
+  it('serves the root discovery endpoint with honesty headers', async () => {
+    const response = await fetch(`${baseUrl}/`, { headers: { 'x-request-id': 'contract-test' } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-simulated')).toBe('true')
+    expect(response.headers.get('x-request-id')).toBe('contract-test')
+    const body = (await response.json()) as { name: string; endpoints: unknown[]; meta: { simulated: boolean } }
+    expect(body.name).toBe('transit-fleet-sim')
+    expect(body.endpoints.length).toBeGreaterThan(0)
+    expect(body.meta.simulated).toBe(true)
+  })
+
   it('serves resolve, position, liveness and readiness with honesty headers', async () => {
     for (const path of [
       `/fleet/resolve?code=${VEHICLE.bin}`,

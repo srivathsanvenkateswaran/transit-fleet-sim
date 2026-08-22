@@ -8,6 +8,7 @@ import { health, readiness } from './health.js'
 import { resolveVehicle } from './resolve.js'
 import { vehiclePosition } from './vehiclePosition.js'
 import { metroArrivals } from './metroArrivals.js'
+import { root } from './root.js'
 
 export interface ApiServerOptions {
   readonly corsAllowedOrigin?: string
@@ -130,6 +131,10 @@ function route(
     )
     response.setHeader('cache-control', 'no-store')
     send(response, result.status, result.body)
+    return
+  }
+  if (url.pathname === '/') {
+    send(response, 200, root())
     return
   }
   if (url.pathname === '/healthz') {
