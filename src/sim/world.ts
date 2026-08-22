@@ -1,6 +1,6 @@
 import { config } from '../config.js'
 import { loadGtfs, type GtfsStopTime, type LoadedGtfs } from '../geometry/loadGtfs.js'
-import { loadMetroTopology } from '../geometry/metroTopology.js'
+import { loadMetroTopology, type MetroTopology } from '../geometry/metroTopology.js'
 import { positionAt } from '../geometry/shape.js'
 import type {
   CreateWorld,
@@ -10,6 +10,7 @@ import type {
   VehicleObservation,
   WorldPort,
   WorldStatus,
+  OccupancyObservation,
 } from '../world/port.js'
 import { createClock, type SimClock } from './clock.js'
 import { advanceCursor, createCursor } from './cursor.js'
@@ -33,6 +34,9 @@ import {
   type DutyState,
 } from './duty.js'
 import { defaultBusMotionProfile, type BusMotionProfile } from './profile.js'
+import { rand } from './rand.js'
+import { MetroSimulation, OPERATIONAL_METRO_SERVICE } from './metro.js'
+import type { MetroArrivalsQuery, MetroArrivalsResult } from '../world/port.js'
 
 export interface SimWorldOptions {
   readonly metroLines?: number
@@ -42,6 +46,7 @@ export interface SimWorldOptions {
   readonly profile?: BusMotionProfile
   readonly deviceProfile?: BusDeviceProfile
   readonly dutyProfile?: BusDutyProfile
+  readonly metroTopology?: MetroTopology
 }
 
 export class SimWorld implements WorldPort {
@@ -52,6 +57,7 @@ export class SimWorld implements WorldPort {
   readonly #profile: BusMotionProfile
   readonly #deviceProfile: BusDeviceProfile
   readonly #dutyProfile: BusDutyProfile
+  readonly #metro: MetroSimulation
   readonly #buses = new Map<string, ActiveBus>()
   readonly #devices = new Map<string, DeviceState>()
   readonly #duties = new Map<string, DutyState>()
@@ -71,6 +77,7 @@ export class SimWorld implements WorldPort {
     this.#profile = options.profile ?? defaultBusMotionProfile
     this.#deviceProfile = options.deviceProfile ?? defaultBusDeviceProfile
     this.#dutyProfile = options.dutyProfile ?? defaultBusDutyProfile
+    this.#metro = new MetroSimulation(options.metroTopology ?? { lines: [], source: 'openstreetmap', fetchedAt: '', overpassEndpoint: '' }, { seed: config.simSeed, timezone: config.simTimezone, peakWindows: [{ startMinutes: 7 * 60, endMinutes: 11 * 60 }, { startMinutes: 17 * 60, endMinutes: 21 * 60 }], predictionHorizonSeconds: 3600, dwellSeconds: 30, uncertaintyBaseSeconds: 30, uncertaintyPerStopSeconds: 8, headwayJitterSeconds: 30 })
     this.#metroLines = options.metroLines ?? 0
     this.#lastTickAt = this.#clock.now()
     for (const bus of dispatchInitialFleet(fleet, gtfs, this.#profile, this.#lastTickAt)) {
@@ -96,6 +103,8 @@ export class SimWorld implements WorldPort {
     }
   }
 
+  metroArrivals(query: MetroArrivalsQuery, at: Date): MetroArrivalsResult { return this.#metro.arrivals(query, at) }
+
   now(): Date {
     return this.#clock.now()
   }
@@ -112,6 +121,7 @@ export class SimWorld implements WorldPort {
       class: bus.member.class,
       duty,
       tracking: trackingObservation(device, at, duty.route !== null, this.#deviceProfile),
+      occupancy: occupancyFor(bus.member.class, trackingObservation(device, at, duty.route !== null, this.#deviceProfile).state, at, bus.member.bin),
       overridden: false,
     }
   }
@@ -263,6 +273,13 @@ export class SimWorld implements WorldPort {
   }
 }
 
+function occupancyFor(vehicleClass: string, state: string, at: Date, bin: string): OccupancyObservation {
+  if (state === 'dark' || state === 'untracked') return { status: 'NO_DATA_AVAILABLE' as const }
+  const base = Math.round(rand(config.simSeed, bin, 'occupancy', Math.floor(at.getTime() / 300000)) * 70 + (vehicleClass === 'metro' ? 20 : 10))
+  const status: OccupancyObservation['status'] = base < 15 ? 'EMPTY' : base < 45 ? 'MANY_SEATS_AVAILABLE' : base < 65 ? 'FEW_SEATS_AVAILABLE' : base < 80 ? 'STANDING_ROOM_ONLY' : base < 95 ? 'CRUSHED_STANDING_ROOM_ONLY' : 'FULL'
+  return { status, percentage: base }
+}
+
 function stopRef(stopTime: GtfsStopTime) {
   return {
     id: stopTime.stop.id,
@@ -287,5 +304,5 @@ function serviceDate(at: Date, timezone: string): string {
 export const createWorld: CreateWorld = async (fleet) => {
   const gtfs = await loadGtfs()
   const metro = await loadMetroTopology(config.metroTopologyPath, config.metroMaxStationGapMetres)
-  return new SimWorld(gtfs, fleet, { metroLines: metro.lines.length })
+  return new SimWorld(gtfs, fleet, { metroLines: metro.lines.length, metroTopology: metro })
 }

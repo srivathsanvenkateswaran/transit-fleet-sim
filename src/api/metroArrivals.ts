@@ -1,15 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { config } from '../config.js'
 import type { MetroTopology } from '../geometry/metroTopology.js'
+import { MetroSimulation } from '../sim/metro.js'
 
 const topology = JSON.parse(readFileSync(config.metroTopologyPath, 'utf8')) as MetroTopology
+const simulation = new MetroSimulation(topology, { seed: config.simSeed, timezone: config.simTimezone, peakWindows: [{ startMinutes: 420, endMinutes: 660 }, { startMinutes: 1020, endMinutes: 1260 }], predictionHorizonSeconds: 3600, dwellSeconds: 30, uncertaintyBaseSeconds: 30, uncertaintyPerStopSeconds: 8, headwayJitterSeconds: 30 })
 
 export function metroArrivals(
   stationId: string | null,
   towardsId: string | null,
   lineId: string | null,
   limitRaw: string | null,
-  _now: Date,
+  now: Date,
 ): { status: number; body: unknown } {
   if (stationId === null || stationId === '') return { status: 400, body: invalid('station is required') }
   const limit = limitRaw === null ? 3 : Number(limitRaw)
@@ -20,15 +22,9 @@ export function metroArrivals(
   if (candidateLines.length === 0) return { status: 404, body: invalid('station was not found') }
   const station = candidateLines[0]?.stations.find((item) => item.id === stationId)
   if (station === undefined) return { status: 404, body: invalid('station was not found') }
-  return {
-    status: 503,
-    body: {
-      error: 'metro_not_simulated',
-      message: 'Metro trains are not simulated yet, so arrivals cannot be calculated.',
-      station: { id: station.id, name: station.name, nameLocal: station.nameLocal },
-      line: lineId,
-    },
-  }
+  const result = simulation.arrivals({ stationId, towardsId, lineId, limit }, now)
+  const status = result.state === 'not_simulated' ? 503 : 200
+  return { status, body: result.body }
 }
 
 function invalid(message: string) {

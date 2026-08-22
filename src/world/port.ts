@@ -195,6 +195,7 @@ export interface VehicleObservation {
   readonly class: VehicleClass
   readonly duty: DutyObservation
   readonly tracking: TrackingObservation
+  readonly occupancy?: OccupancyObservation
   /**
    * True when a scenario override is currently forcing this vehicle's duty or
    * tracking. Surfaces as `meta.overridden` so nobody debugs a forced state for
@@ -203,12 +204,27 @@ export interface VehicleObservation {
   readonly overridden: boolean
 }
 
+export type OccupancyStatus = 'EMPTY' | 'MANY_SEATS_AVAILABLE' | 'FEW_SEATS_AVAILABLE' | 'STANDING_ROOM_ONLY' | 'CRUSHED_STANDING_ROOM_ONLY' | 'FULL' | 'NOT_ACCEPTING_PASSENGERS' | 'NO_DATA_AVAILABLE'
+export interface OccupancyObservation { readonly status: OccupancyStatus; readonly percentage?: number }
+
 /** One predicted stop arrival, with its band. SPEC 7.1. */
 export interface StopPrediction {
   readonly stop: StopRef
   readonly seconds: number
   /** Never omitted and never zero. SPEC decision 6, criterion 35. */
   readonly uncertaintySeconds: number
+}
+
+export interface MetroArrivalsQuery {
+  readonly stationId: string
+  readonly towardsId: string | null
+  readonly lineId: string | null
+  readonly limit: number
+}
+
+export interface MetroArrivalsResult {
+  readonly state: 'open' | 'closed' | 'no_arrivals' | 'not_simulated'
+  readonly body: unknown
 }
 
 /** What `/readyz` needs to decide whether the world is actually turning. SPEC 7.4. */
