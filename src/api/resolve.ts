@@ -84,7 +84,7 @@ export function resolveVehicle(
         hub: { code: vehicle.bin.slice(0, 3), name: config.busHubName },
       },
       duty: observation.duty,
-      tracking: projectTracking(observation.tracking, at),
+      tracking: projectTracking(observation.tracking, at, observation.occupancy),
       confirmation: {
         required: entry === 'manual',
         prompt:

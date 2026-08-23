@@ -26,7 +26,7 @@ export function vehiclePosition(
     body: {
       bin: vehicle.bin,
       class: vehicle.class,
-      tracking: projectTracking(observation.tracking, at),
+      tracking: projectTracking(observation.tracking, at, observation.occupancy),
       duty: {
         status: observation.duty.status,
         route:
