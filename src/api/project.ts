@@ -1,6 +1,7 @@
 import type { FleetRegistry, FleetVehicle } from '../fleet/registry.js'
 import type {
   DutyObservation,
+  OccupancyObservation,
   TrackingObservation,
   VehicleObservation,
   WorldPort,
@@ -19,8 +20,28 @@ export function observationFor(
   return world.observe(vehicle.bin, at) ?? missingWorldObservation(vehicle, at)
 }
 
-export function projectTracking(tracking: TrackingObservation, servedAt: Date) {
+/**
+ * The wire shape of `tracking`, including how full the vehicle is.
+ *
+ * `occupancy` sits beside `tracking` on a `VehicleObservation` rather than
+ * inside it, so it has to be passed in explicitly - which is exactly how it
+ * came to be simulated for every vehicle and then dropped for buses. The metro
+ * arrivals endpoint shapes its own payload and carried it; this projection is
+ * the only other way a vehicle reaches a consumer, and it did not.
+ *
+ * Undefined stays undefined. A vehicle that is dark or untracked already gets
+ * `NO_DATA_AVAILABLE` with no percentage from `occupancyFor`, and that
+ * distinction is load-bearing downstream: an empty bus is a fact about a bus,
+ * no data is a fact about the feed, and a consumer that renders them alike is
+ * inventing a measurement. Never substitute a zero here.
+ */
+export function projectTracking(
+  tracking: TrackingObservation,
+  servedAt: Date,
+  occupancy?: OccupancyObservation,
+) {
   return {
+    ...(occupancy === undefined ? {} : { occupancy }),
     state: tracking.state,
     fixAgeSeconds:
       tracking.observedAt === null
