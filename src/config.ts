@@ -18,7 +18,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const gtfsUrl = validation.optionalUrl('GTFS_URL')
   const simTimezone = validation.timezone('SIM_TIMEZONE', 'Asia/Kolkata')
   const simClock = validation.clock('SIM_CLOCK', 'system')
-  const busRoutes = validation.list('BUS_ROUTES', '500-D,500-A,G-4,335-E,401-K')
+  const busRoutes = validation.list(
+    'BUS_ROUTES',
+    '500-D,500-A,G-4,335-E,401-K,KIA-4,KIA-8,KIA-9,KIA-10,KIA-15',
+  )
   const busSpeedKphMin = validation.positiveNumber('BUS_SPEED_KPH_MIN', '5')
   const busSpeedKphMax = validation.positiveNumber('BUS_SPEED_KPH_MAX', '45')
   const busFixIntervalSeconds = validation.positiveNumber('BUS_FIX_INTERVAL_SECONDS', '20')
