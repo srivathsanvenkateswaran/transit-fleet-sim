@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { loadGtfs } from '../../src/geometry/loadGtfs.js'
 
 describe('GTFS loader', () => {
-  it('loads all five routes from the committed bundle without a network call', async () => {
+  it('loads all ten routes from the committed bundle without a network call', async () => {
     const loaded = await loadGtfs({ source: 'bundled' })
     expect([...loaded.routes.values()].map((route) => route.number).sort()).toEqual([
       '335-E',
@@ -16,8 +16,13 @@ describe('GTFS loader', () => {
       '500-A',
       '500-D',
       'G-4',
+      'KIA-10',
+      'KIA-15',
+      'KIA-4',
+      'KIA-8',
+      'KIA-9',
     ])
-    expect(loaded.shapes.size).toBe(10)
+    expect(loaded.shapes.size).toBe(20)
     expect(loaded.trips.size).toBeGreaterThan(700)
     expect([...loaded.shapes.values()].every((shape) => shape.distanceSource === 'shape_dist_traveled')).toBe(true)
     expect([...loaded.stops.values()].some((stop) => stop.nameLocal !== null)).toBe(true)

@@ -13,7 +13,21 @@ import {
   type RawShapePoint,
 } from '../src/geometry/shape.js'
 
-const DEFAULT_ROUTES = ['500-D', '500-A', 'G-4', '335-E', '401-K'] as const
+const DEFAULT_ROUTES = [
+  '500-D',
+  '500-A',
+  'G-4',
+  '335-E',
+  '401-K',
+  // Kempegowda International Airport (Vayu Vajra) services, added for airport
+  // fleet simulation. Distinct corridors: HAL (KIA-4), Electronic City (KIA-8),
+  // Kempegowda Bus Station (KIA-9), Mysore Road (KIA-10), Whitefield (KIA-15).
+  'KIA-4',
+  'KIA-8',
+  'KIA-9',
+  'KIA-10',
+  'KIA-15',
+] as const
 const UPSTREAM_COMMIT = '9b10e7bacbd5f81b5df9b2dd5de7b9d9d8b4d52c'
 const SOURCE_ARGUMENT = process.argv[2] ?? config.upstreamGtfsUrl
 
@@ -250,7 +264,7 @@ function renderSourceDocument(feedVersion: string, measurement: readonly ShapeMe
 - Fetched: 2026-08-20
 - Routes: ${DEFAULT_ROUTES.join(', ')}
 
-This is an attributed five-route cache of the unofficial community BMTC feed.
+This is an attributed ${DEFAULT_ROUTES.length}-route cache of the unofficial community BMTC feed.
 The upstream repository does not contain a licence file. See
 \`THIRD_PARTY_NOTICES.md\` before redistributing the data.
 
