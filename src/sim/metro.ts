@@ -146,12 +146,22 @@ export class MetroSimulation {
         uncertaintySeconds: this.#profile.uncertaintyBaseSeconds + Math.min(4, stopsAway) * this.#profile.uncertaintyPerStopSeconds,
         basis: active ? 'tracked' : 'scheduled',
       },
+      // No `occupancy` here, deliberately. This sim has no per-train demand
+      // model - the seven-level ladder needs boardings, alightings and a
+      // headway to draw from, and a metro run today has none of the three.
+      // `FEW_SEATS_AVAILABLE` at a flat 62% used to sit on this object
+      // regardless of line, direction, station or time of day, which was not
+      // a coarse measurement, it was a number nobody computed. The wire
+      // contract already treats a vehicle observation with no `occupancy`
+      // field as the ordinary case (`VehicleObservation.occupancy?` in
+      // `src/world/port.ts`), so omitting the key is the whole fix: a
+      // consumer that already handles "this service publishes no crowding"
+      // needs nothing else from this endpoint.
       tracking: {
         state: 'live',
         fixAgeSeconds: active ? 0 : null,
         source: 'simulated_signalling',
         positionConfidence: active ? 0.98 : null,
-        occupancy: { status: 'FEW_SEATS_AVAILABLE', percentage: 62 },
       },
       duty: { status: 'confirmed', confidence: null },
       trip: {
