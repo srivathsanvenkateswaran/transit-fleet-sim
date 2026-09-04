@@ -59,4 +59,65 @@ describe('simulation world', () => {
     expect(world.status(world.now()).metroLines).toBe(3)
     await world.stop()
   })
+
+  it('reports live occupancy but withholds it once the vehicle goes dark', async () => {
+    const gtfs = await loadGtfs()
+    const fleet = generateFleet({ seed: 11, routes: ['500-D'], busesPerRoute: 1 })
+    const world = new SimWorld(gtfs, fleet, {
+      clock: new FixedClock(START),
+      deviceProfile: {
+        ...defaultBusDeviceProfile,
+        seed: 11,
+        coverageShare: 1,
+        fixIntervalSeconds: 100_000,
+        fixJitterSeconds: 0,
+        staleAfterSeconds: 60,
+        darkAfterSeconds: 120,
+        dropoutRatePerHour: 0,
+      },
+    })
+    const bin = fleet[0]!.bin
+    const live = world.observe(bin, START)
+    expect(live?.tracking.state).toBe('live')
+    expect(live?.occupancy?.status).not.toBe('NO_DATA_AVAILABLE')
+    expect(live?.occupancy?.percentage).toBeGreaterThanOrEqual(0)
+
+    const dark = new Date(START.getTime() + 130_000)
+    world.tickAt(dark)
+    const observedDark = world.observe(bin, dark)
+    expect(observedDark?.tracking.state).toBe('dark')
+    expect(observedDark?.occupancy).toEqual({ status: 'NO_DATA_AVAILABLE' })
+  })
+
+  it("freezes a stale vehicle's occupancy at the last fix instead of drifting with the clock", async () => {
+    const gtfs = await loadGtfs()
+    const fleet = generateFleet({ seed: 13, routes: ['500-D'], busesPerRoute: 1 })
+    const world = new SimWorld(gtfs, fleet, {
+      clock: new FixedClock(START),
+      deviceProfile: {
+        ...defaultBusDeviceProfile,
+        seed: 13,
+        coverageShare: 1,
+        fixIntervalSeconds: 100_000,
+        fixJitterSeconds: 0,
+        staleAfterSeconds: 5,
+        darkAfterSeconds: 100_000,
+        dropoutRatePerHour: 0,
+      },
+    })
+    const bin = fleet[0]!.bin
+    const firstStale = new Date(START.getTime() + 30_000)
+    world.tickAt(firstStale)
+    const firstObservation = world.observe(bin, firstStale)
+    expect(firstObservation?.tracking.state).toBe('stale')
+
+    const laterStale = new Date(START.getTime() + 400_000)
+    world.tickAt(laterStale)
+    const laterObservation = world.observe(bin, laterStale)
+    expect(laterObservation?.tracking.state).toBe('stale')
+    // The bus's simulated cursor has moved a long way in those six minutes,
+    // but the reported fix - and its occupancy - has not.
+    expect(laterObservation?.occupancy).toEqual(firstObservation?.occupancy)
+    expect(laterObservation?.tracking.position).toEqual(firstObservation?.tracking.position)
+  })
 })

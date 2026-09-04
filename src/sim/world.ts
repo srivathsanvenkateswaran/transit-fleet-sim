@@ -10,7 +10,6 @@ import type {
   VehicleObservation,
   WorldPort,
   WorldStatus,
-  OccupancyObservation,
 } from '../world/port.js'
 import { createClock, type SimClock } from './clock.js'
 import { advanceCursor, createCursor } from './cursor.js'
@@ -33,8 +32,8 @@ import {
   type BusDutyProfile,
   type DutyState,
 } from './duty.js'
+import { defaultBusOccupancyProfile, occupancyFor, type BusOccupancyProfile } from './occupancy.js'
 import { defaultBusMotionProfile, type BusMotionProfile } from './profile.js'
-import { rand } from './rand.js'
 import { MetroSimulation, OPERATIONAL_METRO_SERVICE } from './metro.js'
 import type { MetroArrivalsQuery, MetroArrivalsResult } from '../world/port.js'
 
@@ -46,6 +45,7 @@ export interface SimWorldOptions {
   readonly profile?: BusMotionProfile
   readonly deviceProfile?: BusDeviceProfile
   readonly dutyProfile?: BusDutyProfile
+  readonly occupancyProfile?: BusOccupancyProfile
   readonly metroTopology?: MetroTopology
 }
 
@@ -57,6 +57,7 @@ export class SimWorld implements WorldPort {
   readonly #profile: BusMotionProfile
   readonly #deviceProfile: BusDeviceProfile
   readonly #dutyProfile: BusDutyProfile
+  readonly #occupancyProfile: BusOccupancyProfile
   readonly #metro: MetroSimulation
   readonly #buses = new Map<string, ActiveBus>()
   readonly #devices = new Map<string, DeviceState>()
@@ -77,6 +78,7 @@ export class SimWorld implements WorldPort {
     this.#profile = options.profile ?? defaultBusMotionProfile
     this.#deviceProfile = options.deviceProfile ?? defaultBusDeviceProfile
     this.#dutyProfile = options.dutyProfile ?? defaultBusDutyProfile
+    this.#occupancyProfile = options.occupancyProfile ?? defaultBusOccupancyProfile
     this.#metro = new MetroSimulation(options.metroTopology ?? { lines: [], source: 'openstreetmap', fetchedAt: '', overpassEndpoint: '' }, { seed: config.simSeed, timezone: config.simTimezone, peakWindows: [{ startMinutes: 7 * 60, endMinutes: 11 * 60 }, { startMinutes: 17 * 60, endMinutes: 21 * 60 }], predictionHorizonSeconds: 3600, dwellSeconds: 30, uncertaintyBaseSeconds: 30, uncertaintyPerStopSeconds: 8, headwayJitterSeconds: 30 })
     this.#metroLines = options.metroLines ?? 0
     this.#lastTickAt = this.#clock.now()
@@ -116,12 +118,33 @@ export class SimWorld implements WorldPort {
     const device = this.#devices.get(bin)
     if (dutyState === undefined || device === undefined) throw new Error(`Incomplete world state for ${bin}`)
     const duty = dutyObservation(dutyState, bus, [...this.#gtfs.routes.values()], this.#dutyProfile)
+    const tracking = trackingObservation(device, at, duty.route !== null, this.#deviceProfile)
     return {
       bin,
       class: bus.member.class,
       duty,
-      tracking: trackingObservation(device, at, duty.route !== null, this.#deviceProfile),
-      occupancy: occupancyFor(bus.member.class, trackingObservation(device, at, duty.route !== null, this.#deviceProfile).state, at, bus.member.bin),
+      tracking,
+      occupancy: occupancyFor(
+        {
+          bin,
+          trackingState: tracking.state,
+          routeId: bus.route.id,
+          routeNumber: bus.route.number,
+          directionId: bus.trip.directionId,
+          // Occupancy travels with whichever fix tracking is reporting, not
+          // with the live cursor: a `stale` fix must carry stale occupancy,
+          // never a figure computed against where the bus has moved on to.
+          // `device.lastFix` is non-null whenever `tracking.state` is `live`
+          // or `stale` (only `untracked` has none), which is the only case
+          // `occupancyFor` reads these fields at all - see its dark/untracked
+          // short-circuit.
+          distanceAlongRouteMetres: device.lastFix?.progress?.distanceAlongRouteMetres ?? 0,
+          routeLengthMetres: device.lastFix?.progress?.routeLengthMetres ?? 0,
+          at: device.lastFix?.observedAt ?? at,
+          tripStartedAtMs: bus.tripStartedAt.getTime(),
+        },
+        this.#occupancyProfile,
+      ),
       overridden: false,
     }
   }
@@ -271,13 +294,6 @@ export class SimWorld implements WorldPort {
       routeLengthMetres,
     }
   }
-}
-
-function occupancyFor(vehicleClass: string, state: string, at: Date, bin: string): OccupancyObservation {
-  if (state === 'dark' || state === 'untracked') return { status: 'NO_DATA_AVAILABLE' as const }
-  const base = Math.round(rand(config.simSeed, bin, 'occupancy', Math.floor(at.getTime() / 300000)) * 70 + (vehicleClass === 'metro' ? 20 : 10))
-  const status: OccupancyObservation['status'] = base < 15 ? 'EMPTY' : base < 45 ? 'MANY_SEATS_AVAILABLE' : base < 65 ? 'FEW_SEATS_AVAILABLE' : base < 80 ? 'STANDING_ROOM_ONLY' : base < 95 ? 'CRUSHED_STANDING_ROOM_ONLY' : 'FULL'
-  return { status, percentage: base }
 }
 
 function stopRef(stopTime: GtfsStopTime) {
