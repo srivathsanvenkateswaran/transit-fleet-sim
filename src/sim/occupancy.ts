@@ -89,6 +89,20 @@ export interface OccupancyInput {
    * this type for one to arrive by accident.
    */
   readonly reservation: { readonly required: boolean } | null
+  /**
+   * docs/intercity-coaches.md §3.7: "The demand curve is a city curve...
+   * At 02:00 on a corridor it returns the floor for a coach that is genuinely
+   * full of sleeping passengers." For a reserved duty §7 makes that moot by
+   * refusing to run the model at all; for an unreserved intercity duty
+   * (Karnataka Sarige) the two-peak commuter shape is replaced with a
+   * long-distance one.
+   *
+   * Like `reservation`, this is a property of the duty being served and not
+   * of the vehicle class - a `KIA-*` airport coach is a bus running a city
+   * duty and keeps the city curve. Open question 11 records that neither
+   * shape is fitted to anything, and §17.2 marks both `modelled`.
+   */
+  readonly longDistance?: boolean
 }
 
 /**
@@ -198,7 +212,7 @@ function headcountFor(
   const centre = centreFraction(profile.seed, input.routeId, input.directionId)
   const combined =
     DEMAND_SCALE *
-    timeOfDayFactor(minutes) *
+    (input.longDistance === true ? longDistanceTimeOfDayFactor(minutes) : timeOfDayFactor(minutes)) *
     directionFactor(minutes, input.directionId) *
     routeBaseFactor(profile.seed, input.routeId) *
     tripJitterFactor(profile.seed, input.bin, input.tripStartedAtMs)
@@ -237,6 +251,27 @@ function timeOfDayFactor(minutes: number): number {
   const evening = 0.9 * gaussian(minutes, 18 * 60 + 15, 75)
   const midday = 0.22 * gaussian(minutes, 13 * 60, 180)
   return clamp(baseline + morning + evening + midday, 0.04, 1)
+}
+
+/**
+ * The long-distance replacement for the two-peak commuter curve.
+ *
+ * An intercity run does not empty overnight: the overnight departure is the
+ * one people choose, and a coach at 02:00 is full of sleeping passengers
+ * rather than sitting on the city model's floor. So this is a broad plateau
+ * with a modest evening-departure rise and a shallow trough in the small
+ * hours of the *afternoon* trade, rather than a morning and evening rush.
+ *
+ * It is no more fitted to ridership data than the city curve is - §17.2 and
+ * open question 11 both say so - and it is marked `modelled` on the wire for
+ * the same reason. What it is not is *wrong in a way anyone can see*: the
+ * city curve reporting a near-empty overnight sleeper was.
+ */
+function longDistanceTimeOfDayFactor(minutes: number): number {
+  const plateau = 0.55
+  const eveningDeparture = 0.3 * gaussian(minutes, 21 * 60, 210)
+  const morningArrival = 0.15 * gaussian(minutes, 7 * 60, 180)
+  return clamp(plateau + eveningDeparture + morningArrival, 0.4, 1)
 }
 
 /**

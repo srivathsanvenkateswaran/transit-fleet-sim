@@ -1,0 +1,59 @@
+{
+  "note": "docs/intercity-coaches.md §13.3. NOTHING IN THIS FILE IS A CLAIM ABOUT WHEN A KSRTC COACH ACTUALLY LEAVES. The 22:59 Bengaluru-Hampi Pallakki departure is here because a route-aggregator page reported it and the reporting is plausible; the primary fetch of that page failed with a DNS error and was never independently re-verified. Every other departure is invented outright to give the corridor a plausible cadence. This file is kept separate from corridor-topology.json because the two carry different licences and different confidence: the topology is a derived database under ODbL, this roster is this repository's own fabrication in the same sense every plate is.",
+  "provenance": {
+    "departures": "authored_secondary",
+    "stands": "authored_secondary"
+  },
+  "corridors": [
+    {
+      "corridorId": "BNG-HSP",
+      "departures": [
+        {
+          "serviceId": "1030BNGHMP",
+          "number": "1030BNGHMP",
+          "headsign": "Hampi",
+          "departureTime": "10:30",
+          "serviceClass": "karnataka_sarige",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "invented",
+          "note": "The unreserved counter-example (§13.1, §15 criterion 92): walk-up, standing-room-permitted, nobody counts, so the demand model applies and §7's refusal does not."
+        },
+        {
+          "serviceId": "2115BNGHMP",
+          "number": "2115BNGHMP",
+          "headsign": "Hampi",
+          "departureTime": "21:15",
+          "serviceClass": "airavat",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "invented",
+          "note": "A second reserved class on the same corridor, so the class-conditional coverage rule has something to bite on."
+        },
+        {
+          "serviceId": "2259BNGHMP",
+          "number": "2259BNGHMP",
+          "headsign": "Hampi",
+          "departureTime": "22:59",
+          "serviceClass": "pallakki",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "Reported departing Kempegowda Bus Station at 22:59 via ksrtcbus.in/route-2259bnghmp/, whose direct fetch failed with a DNS error. [S] Open question 3."
+        },
+        {
+          "serviceId": "0030BNGHMP",
+          "number": "0030BNGHMP",
+          "headsign": "Hampi",
+          "departureTime": "24:30",
+          "serviceClass": "rajahamsa_executive",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "invented",
+          "runsOn": [5, 6],
+          "note": "Runs on Friday and Saturday service dates only, which is what a weekend relief is and is also the only thing in this fixture that makes duty_not_scheduled (§10.3) a reachable answer rather than an unused error string. A relief departure after midnight, written as the GTFS time it is (24:30, not 00:30) because a departure time here is measured from its own service date's local midnight and may exceed 24 hours. It exists so the travel-date/service-date trap (§7.4, criterion 91) has a real duty to fire on: booked for travel on the 26th, filed under service date the 25th."
+        }
+      ]
+    }
+  ]
+}

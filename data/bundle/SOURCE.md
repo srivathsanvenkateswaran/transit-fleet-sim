@@ -125,3 +125,39 @@ own cited figures (§1.2); `karnataka_sarige`, `rajahamsa_executive` and
 document cites (only fleet totals), so their capacities are this repository's
 own plausible estimates, consistent with real-world seating norms for buses
 of that class and positioning. `reserved` matches §1.2's table exactly.
+
+# `corridor-roster.json` (docs/intercity-coaches.md §13.2, §13.3)
+
+**Nothing in this file is a claim about when a KSRTC coach actually leaves.**
+It is kept as a separate file from `corridor-topology.json` because the two
+carry different licences and different confidence: the topology is a derived
+database under ODbL, and this roster is this repository's own fabrication in
+the same sense every plate is. Merging them would make the ODbL claim on the
+whole thing murky and would let a reader assume the departure times inherit
+OpenStreetMap's provenance, which they do not.
+
+Per §13.3 the fabrication is stated in three places rather than one: here, in
+the fidelity table (§17.2), and on `/fleet/corridors` as
+`provenance.departures: "authored_secondary"` - because a departure time is
+exactly the kind of number a screenshot turns into a fact.
+
+| Service | Departure | Class | Confidence | Where it comes from |
+|---|---|---|---|---|
+| `2259BNGHMP` | 22:59 | Pallakki | `secondary_unverified` **[S]** | Reported departing Kempegowda Bus Station at 22:59 by a route-aggregator page (`ksrtcbus.in/route-2259bnghmp/`) whose direct fetch failed with a DNS error and was never independently re-verified. Open question 3. |
+| `1030BNGHMP` | 10:30 | Karnataka Sarige | `invented` | Invented outright. It exists as the unreserved counter-example §13.1 asks for: walk-up, nobody counts, so the demand model applies and §7's refusal does not. |
+| `2115BNGHMP` | 21:15 | Airavat | `invented` | Invented outright. A second reserved class on the same corridor, so the class-conditional coverage rule has something to bite on. |
+| `0030BNGHMP` | `24:30` | Rajahamsa Executive | `invented` | Invented outright, and written as the GTFS time it is rather than as `00:30`: a departure time here is measured from its own service date's local midnight and may exceed 24 hours (§3.3). Runs on Friday and Saturday **service dates** only. It exists so two things have a real duty to fire on - the travel-date/service-date trap (§7.4, criterion 91) and `duty_not_scheduled` (§10.3), which would otherwise be an error string in the taxonomy with no reachable producer. |
+
+**The arrival times are not authored at all.** Each duty's scheduled call at
+every stand is derived from the committed corridor geometry and the configured
+per-segment speeds and dwell means (`scheduleCalls` in
+`src/sim/corridorRoster.ts`), not written beside the departure. A hand-written
+arrival time would be a second, independent claim about a corridor this
+repository has already measured, and the two would drift.
+
+**Consequence worth stating**: the routed `BNG-HSP` geometry is 417.7 km
+rather than the ~340 km §1.3 cites from secondary sources, so the derived run
+is about nine and a half hours rather than the reported seven and a half. The
+geometry is the measured thing and the reported duration is the secondary one;
+this pipeline does not adjust real routed geometry to match an unverified
+timetable.

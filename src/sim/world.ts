@@ -7,6 +7,7 @@ import type {
   CreateWorld,
   FleetMember,
   Progress,
+  ScheduleUpdate,
   StopPrediction,
   VehicleObservation,
   WorldPort,
@@ -33,7 +34,9 @@ import {
   type BusDutyProfile,
   type DutyState,
 } from './duty.js'
-import { loadIntercitySetup } from './intercitySetup.js'
+import { coachSlotsFor, loadIntercitySetup } from './intercitySetup.js'
+import { CoachSimulation, type CoachWorldProfiles } from './coachWorld.js'
+import { defaultCoachProfiles } from './coachProfiles.js'
 import { defaultBusOccupancyProfile, occupancyFor, projectOccupancy, type BusOccupancyProfile } from './occupancy.js'
 import { defaultBusMotionProfile, type BusMotionProfile } from './profile.js'
 import { serviceDate } from './serviceDate.js'
@@ -76,6 +79,13 @@ export interface SimWorldOptions {
    * option deliberately does not also carry.
    */
   readonly corridorCount?: number
+  /**
+   * docs/intercity-coaches.md §11.3's `#roster`/`#active` split, as a whole
+   * object rather than a flag. `undefined` (the default) is §14.1's
+   * coaches-off case: nothing below is constructed, `tickAt` iterates exactly
+   * the vehicles it does today, and no new field appears on any response.
+   */
+  readonly coaches?: CoachSimulation
 }
 
 export class SimWorld implements WorldPort {
@@ -88,6 +98,7 @@ export class SimWorld implements WorldPort {
   readonly #dutyProfile: BusDutyProfile
   readonly #occupancyProfile: BusOccupancyProfile
   readonly #corridorCount: number | null
+  readonly #coaches: CoachSimulation | null
   readonly #metro: MetroSimulation
   readonly #buses = new Map<string, ActiveBus>()
   readonly #devices = new Map<string, DeviceState>()
@@ -120,6 +131,7 @@ export class SimWorld implements WorldPort {
     this.#dutyProfile = options.dutyProfile ?? defaultBusDutyProfile
     this.#occupancyProfile = options.occupancyProfile ?? defaultBusOccupancyProfile
     this.#corridorCount = options.corridorCount ?? null
+    this.#coaches = options.coaches ?? null
     this.#metro = new MetroSimulation(options.metroTopology ?? { lines: [], source: 'openstreetmap', fetchedAt: '', overpassEndpoint: '' }, { seed: config.simSeed, timezone: config.simTimezone, peakWindows: [{ startMinutes: 7 * 60, endMinutes: 11 * 60 }, { startMinutes: 17 * 60, endMinutes: 21 * 60 }], predictionHorizonSeconds: 3600, dwellSeconds: 30, uncertaintyBaseSeconds: 30, uncertaintyPerStopSeconds: 8, headwayJitterSeconds: 30 })
     this.#metroLines = options.metroLines ?? 0
     this.#lastTickAt = this.#clock.now()
@@ -160,9 +172,20 @@ export class SimWorld implements WorldPort {
     return this.#clock.now()
   }
 
+  /** The coach half of the world, or null when §14.1's default-off applies. */
+  get coaches(): CoachSimulation | null {
+    return this.#coaches
+  }
+
   observe(bin: string, at: Date): VehicleObservation | null {
     const bus = this.#buses.get(bin)
-    if (bus === undefined) return null
+    // A coach is not in `#buses` at all - it is rostered, not dispatched by
+    // spread - so the coach simulation answers for it. A coach that is not
+    // currently running any duty returns null here exactly as an unknown BIN
+    // does, and the API answers SPEC 5.3 cell D from the registry row, which
+    // is the honest answer for a vehicle parked in a depot until tomorrow
+    // night: the plate is still a fact and the world has nothing to add.
+    if (bus === undefined) return this.#coaches?.observe(bin, at) ?? null
     const dutyState = this.#duties.get(bin)
     const device = this.#devices.get(bin)
     if (dutyState === undefined || device === undefined) throw new Error(`Incomplete world state for ${bin}`)
@@ -215,7 +238,8 @@ export class SimWorld implements WorldPort {
 
   predictNextStops(bin: string, _at: Date, limit: number): readonly StopPrediction[] {
     const bus = this.#buses.get(bin)
-    if (bus === undefined || bus.cursor.layoverUntilMs !== null) return []
+    if (bus === undefined) return this.#coaches?.predictNextStops(bin, _at, limit) ?? []
+    if (bus.cursor.layoverUntilMs !== null) return []
     const duty = this.#duties.get(bin)
     const device = this.#devices.get(bin)
     if (duty === undefined || device === undefined) return []
@@ -234,11 +258,51 @@ export class SimWorld implements WorldPort {
       .map((stop, index) => ({
         stop: stopRef(stop),
         seconds: Math.max(0, Math.round((stop.stopDistanceMetres - bus.cursor.distanceMetres) / metresPerSecond)),
-        uncertaintySeconds: 45 + index * 30,
+        // docs/intercity-coaches.md criterion 78: this was a hardcoded
+        // `45 + index * 30` that did not read the configuration at all, so
+        // PREDICTION_UNCERTAINTY_BASE_SECONDS and
+        // PREDICTION_UNCERTAINTY_PER_STOP_SECONDS were documented knobs that
+        // moved nothing. The literals happened to equal the defaults, which
+        // is exactly why nobody noticed. Reading them changes no default
+        // output and makes the two variables mean what .env.example says.
+        uncertaintySeconds:
+          config.predictionUncertaintyBaseSeconds +
+          index * config.predictionUncertaintyPerStopSeconds,
       }))
   }
 
-  status(): WorldStatus {
+  /**
+   * SPEC 7.3 rules 3 and 4, in one place so the feed cannot re-decide them.
+   *
+   * A bus beyond `PREDICTION_HORIZON_STOPS`, and every stop of a bus that is
+   * `dark` or `untracked`, comes back with a null prediction, which the feed
+   * publishes as `NO_DATA` with no arrival and no departure. Publishing a
+   * prediction twenty stops ahead of a bus in Bengaluru traffic would be
+   * fabrication with extra steps, and a dark bus is genuinely unlocatable -
+   * stopped at a junction, diverted, or three kilometres on, with no bound on
+   * any of it.
+   */
+  scheduleUpdates(bin: string, at: Date): readonly ScheduleUpdate[] {
+    const bus = this.#buses.get(bin)
+    if (bus === undefined) return this.#coaches?.scheduleUpdates(bin, at) ?? []
+    const duty = this.#duties.get(bin)
+    const device = this.#devices.get(bin)
+    if (duty === undefined || device === undefined) return []
+    if (duty.status === 'unknown' || duty.status === 'out_of_service') return []
+    const predictions = this.predictNextStops(bin, at, config.predictionHorizonStops)
+    const predicted = new Map(predictions.map((prediction) => [prediction.stop.id, prediction]))
+    return bus.trip.stops.slice(bus.cursor.nextStopIndex).map((stop) => {
+      const prediction = predicted.get(stop.stop.id)
+      return {
+        stop: stopRef(stop),
+        seconds: prediction?.seconds ?? null,
+        uncertaintySeconds: prediction?.uncertaintySeconds ?? null,
+      }
+    })
+  }
+
+  status(at: Date = this.#lastTickAt): WorldStatus {
+    const coaches = this.#coaches
     return {
       geometryLoaded: true,
       routes: this.#gtfs.routes.size,
@@ -247,6 +311,16 @@ export class SimWorld implements WorldPort {
       lastTickAt: this.#lastTickAt.toISOString(),
       tickLagMs: this.#tickLagMs,
       seed: this.#profile.seed,
+      // §10.7: the roster counts and the window travel with `corridors`, and
+      // all four are omitted together when coaches are off.
+      ...(coaches === null
+        ? {}
+        : {
+            coachesRostered: coaches.rosteredCount,
+            coachesActive: coaches.activeCount(at),
+            rosterWindow: { from: coaches.rosterWindow.from, to: coaches.rosterWindow.to },
+            rosterWindowStale: coaches.rosterWindowStale(at),
+          }),
       // §14.1: omitted, not `corridors: undefined`, when the feature is off -
       // see the note on `exactOptionalPropertyTypes` at the occupancy
       // call site above for why that distinction has to be made this way.
@@ -292,6 +366,10 @@ export class SimWorld implements WorldPort {
         this.#simulatedAt,
       )
     }
+    // §11.3: the coach half iterates `#active` only - at about eleven running
+    // coaches out of thirty-four rostered, a small fraction of the sixty-bus
+    // loop above.
+    this.#coaches?.tickAt(at)
     this.#lastTickAt = new Date(at)
   }
 
@@ -383,23 +461,59 @@ function stopRef(stopTime: GtfsStopTime) {
   }
 }
 
-export const createWorld: CreateWorld = async (fleet) => {
-  const gtfs = await loadGtfs()
-  const metro = await loadMetroTopology(config.metroTopologyPath, config.metroMaxStationGapMetres)
-  // docs/intercity-coaches.md §14.1: unset by default, in which case this is
-  // `null` and nothing below is read at all - no file, no validation, no
-  // field on `/readyz`. See src/sim/intercitySetup.ts for exactly what
-  // "loaded" means in this pass and what it deliberately does not yet mean.
-  const intercity = await loadIntercitySetup({
+/**
+ * docs/intercity-coaches.md §14.1: unset by default, in which case this is
+ * `null` and nothing else is read at all - no file, no validation, no field
+ * on `/readyz`, no coach in the fleet and no new key on any response.
+ */
+export async function loadIntercity() {
+  return loadIntercitySetup({
     corridors: config.intercityCorridors,
     topologyPath: config.intercityTopologyPath,
+    rosterPath: config.intercityRosterPath,
     hubCodes: config.intercityHubCodes,
     serviceClassIds: config.intercityServiceClasses,
     classesPath: resolve('./data/bundle/corridor-classes.json'),
   })
-  return new SimWorld(gtfs, fleet, {
+}
+
+export { coachSlotsFor }
+
+export async function createWorld(
+  fleet: readonly FleetMember[],
+  preloaded?: Awaited<ReturnType<typeof loadIntercity>>,
+): Promise<SimWorld> {
+  const gtfs = await loadGtfs()
+  const metro = await loadMetroTopology(config.metroTopologyPath, config.metroMaxStationGapMetres)
+  const intercity = preloaded ?? (await loadIntercity())
+  const bootAt = createClock(config.simClock).now()
+  const profiles: CoachWorldProfiles = defaultCoachProfiles
+  const coaches =
+    intercity === null
+      ? null
+      : new CoachSimulation({
+          topology: intercity.topology,
+          serviceClasses: intercity.serviceClasses,
+          roster: intercity.roster,
+          fleet,
+          corridorIds: config.intercityCorridors,
+          profiles,
+          bootAt,
+        })
+  // A coach is rostered by departure, never spread around a GTFS route, so
+  // it must not reach `dispatchInitialFleet` at all - it has no `route_id` to
+  // be spread around. The split is on carrying a **service class**, which
+  // only a coach does, rather than on the class name: the same axis §7.3
+  // uses for the occupancy refusal, and it keeps this file outside
+  // tests/contract/sourceBoundaries.test.ts's class-comparison regex.
+  const dispatchable = fleet.filter((member) => member.serviceClass == null)
+  return new SimWorld(gtfs, dispatchable, {
     metroLines: metro.lines.length,
     metroTopology: metro,
-    ...(intercity === null ? {} : { corridorCount: intercity.topology.corridors.length }),
+    ...(intercity === null ? {} : { corridorCount: config.intercityCorridors.length }),
+    ...(coaches === null ? {} : { coaches }),
   })
 }
+
+/** The `CreateWorld` shape `src/world/port.ts` names, satisfied structurally. */
+export const createWorldPort: CreateWorld = (fleet) => createWorld(fleet)

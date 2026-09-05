@@ -36,6 +36,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const dutyOutOfServiceShare = validation.share('DUTY_OUT_OF_SERVICE_SHARE', '0.05')
   const dutyInferredConfidenceMin = validation.share('DUTY_INFERRED_CONFIDENCE_MIN', '0.55')
   const dutyInferredConfidenceMax = validation.share('DUTY_INFERRED_CONFIDENCE_MAX', '0.95')
+  // docs/intercity-coaches.md §12.2-§12.8. Every one of these is read only
+  // when `INTERCITY_CORRIDORS` is set; they are parsed unconditionally so a
+  // typo fails startup rather than waiting for the first coach.
+  const intercityStaleAfterSeconds = validation.positiveNumber('INTERCITY_STALE_AFTER_SECONDS', '180')
+  const intercityDarkAfterSeconds = validation.positiveNumber('INTERCITY_DARK_AFTER_SECONDS', '600')
+  const intercityFixIntervalSeconds = validation.positiveNumber('INTERCITY_FIX_INTERVAL_SECONDS', '30')
+  const intercityFixIntervalStationarySeconds = validation.positiveNumber(
+    'INTERCITY_FIX_INTERVAL_STATIONARY_SECONDS',
+    '120',
+  )
+  const intercityFixJitterSeconds = validation.nonNegativeNumber('INTERCITY_FIX_JITTER_SECONDS', '8')
+  const intercityCoverageShareReserved = validation.share('INTERCITY_COVERAGE_SHARE__RESERVED', '0.92')
+  const intercityCoverageShareOrdinary = validation.share('INTERCITY_COVERAGE_SHARE__ORDINARY', '0.70')
+  const intercityCruiseKphMin = validation.positiveNumber('INTERCITY_CRUISE_KPH_MIN', '30')
+  const intercityCruiseKphMax = validation.positiveNumber('INTERCITY_CRUISE_KPH_MAX', '85')
+  const intercityDutyConfirmedShare = validation.share('INTERCITY_DUTY_CONFIRMED_SHARE', '0.80')
+  const intercityDutyInferredShare = validation.share('INTERCITY_DUTY_INFERRED_SHARE', '0.15')
+  const intercityDutyUnknownShare = validation.share('INTERCITY_DUTY_UNKNOWN_SHARE', '0.03')
+  const intercityDutyOutOfServiceShare = validation.share('INTERCITY_DUTY_OUT_OF_SERVICE_SHARE', '0.02')
 
   if (gtfsSource === 'path' && gtfsPathRaw === null) {
     validation.issue('GTFS_PATH is required when GTFS_SOURCE=path')
@@ -64,6 +83,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   if (dutyInferredConfidenceMin > dutyInferredConfidenceMax) {
     validation.issue('DUTY_INFERRED_CONFIDENCE_MIN must not exceed DUTY_INFERRED_CONFIDENCE_MAX')
+  }
+  if (intercityStaleAfterSeconds >= intercityDarkAfterSeconds) {
+    validation.issue('INTERCITY_STALE_AFTER_SECONDS must be less than INTERCITY_DARK_AFTER_SECONDS')
+  }
+  if (intercityFixJitterSeconds >= intercityFixIntervalSeconds) {
+    validation.issue('INTERCITY_FIX_JITTER_SECONDS must be less than INTERCITY_FIX_INTERVAL_SECONDS')
+  }
+  if (intercityFixIntervalStationarySeconds < intercityFixIntervalSeconds) {
+    validation.issue(
+      'INTERCITY_FIX_INTERVAL_STATIONARY_SECONDS must not be shorter than INTERCITY_FIX_INTERVAL_SECONDS',
+    )
+  }
+  if (intercityCruiseKphMin > intercityCruiseKphMax) {
+    validation.issue('INTERCITY_CRUISE_KPH_MIN must not exceed INTERCITY_CRUISE_KPH_MAX')
+  }
+  // §12.5: the four intercity duty shares must sum to 1.0 within 1e-6 or
+  // startup fails, naming all four and the sum - the same rule the bus shares
+  // already carry, restated because these are a separate set with separate
+  // defaults (confirmed 0.80 against the bus's 0.60).
+  const intercityDutyShareTotal =
+    intercityDutyConfirmedShare +
+    intercityDutyInferredShare +
+    intercityDutyUnknownShare +
+    intercityDutyOutOfServiceShare
+  if (Math.abs(intercityDutyShareTotal - 1) > 1e-6) {
+    validation.issue(
+      `Intercity duty shares must sum to 1.0; confirmed=${intercityDutyConfirmedShare}, inferred=${intercityDutyInferredShare}, unknown=${intercityDutyUnknownShare}, out_of_service=${intercityDutyOutOfServiceShare}, sum=${intercityDutyShareTotal}`,
+    )
   }
 
   const result = {
@@ -222,6 +269,113 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       'INTERCITY_SERVICE_CLASSES',
       'karnataka_sarige,rajahamsa_executive,airavat,airavat_club_class,ambaari_utsav,pallakki',
     ),
+    intercityRosterPath: resolve(
+      validation.nonEmpty('INTERCITY_ROSTER_PATH', './data/bundle/corridor-roster.json'),
+    ),
+    // §12.1: service days held at once. Must be at least 2 for a duty that
+    // crosses midnight - a window of one day cannot contain both the service
+    // date a coach departed on and the calendar day it arrives on.
+    intercityRosterDays: validation.rosterDays('INTERCITY_ROSTER_DAYS', '3'),
+    intercityAssignmentHorizonHours: validation.positiveNumber(
+      'INTERCITY_ASSIGNMENT_HORIZON_HOURS',
+      '36',
+    ),
+
+    // §12.2
+    intercityCoverageShareReserved,
+    intercityCoverageShareOrdinary,
+    intercityFixIntervalSeconds,
+    intercityFixIntervalStationarySeconds,
+    intercityFixJitterSeconds,
+    intercityStaleAfterSeconds,
+    intercityDarkAfterSeconds,
+    intercityGpsNoiseMetres: validation.nonNegativeNumber('INTERCITY_GPS_NOISE_METRES', '12'),
+
+    // §12.3. The four zone-placement variables are deliberately absent: §12.3
+    // marks them "Build-time; the zones are written into the topology", and
+    // `scripts/build-corridors.ts` carries them as its own constants. A
+    // runtime knob for them would let a deployment move a dead zone that is
+    // already committed to a geometry file and validated by the gate.
+    intercityDeadZoneUncertaintyMultiplier: validation.positiveNumber(
+      'INTERCITY_DEAD_ZONE_UNCERTAINTY_MULTIPLIER',
+      '2.5',
+    ),
+    intercityUrbanDropoutRatePerHour: validation.nonNegativeNumber(
+      'INTERCITY_URBAN_DROPOUT_RATE_PER_HOUR',
+      '1.5',
+    ),
+
+    // §12.4
+    intercityBoardingSecondsMean: validation.nonNegativeNumber('INTERCITY_BOARDING_SECONDS_MEAN', '180'),
+    intercityBoardingSecondsSd: validation.positiveNumber('INTERCITY_BOARDING_SECONDS_SD', '60'),
+    intercityStandSecondsMean: validation.nonNegativeNumber('INTERCITY_STAND_SECONDS_MEAN', '420'),
+    intercityStandSecondsSd: validation.positiveNumber('INTERCITY_STAND_SECONDS_SD', '180'),
+    intercityHaltSecondsMean: validation.nonNegativeNumber('INTERCITY_HALT_SECONDS_MEAN', '1800'),
+    intercityHaltSecondsSd: validation.positiveNumber('INTERCITY_HALT_SECONDS_SD', '420'),
+    intercityCrewChangeSecondsMean: validation.nonNegativeNumber(
+      'INTERCITY_CREW_CHANGE_SECONDS_MEAN',
+      '420',
+    ),
+    intercityCrewChangeSecondsSd: validation.positiveNumber('INTERCITY_CREW_CHANGE_SECONDS_SD', '120'),
+
+    // §12.5
+    intercityDutyConfirmedShare,
+    intercityDutyInferredShare,
+    intercityDutyUnknownShare,
+    intercityDutyOutOfServiceShare,
+    intercityVehicleSubstitutionRatePerDuty: validation.share(
+      'INTERCITY_VEHICLE_SUBSTITUTION_RATE_PER_DUTY',
+      '0.06',
+    ),
+
+    // §12.6
+    intercityCruiseKphMean: validation.positiveNumber('INTERCITY_CRUISE_KPH_MEAN', '62'),
+    intercityCruiseKphSd: validation.nonNegativeNumber('INTERCITY_CRUISE_KPH_SD', '8'),
+    intercityCruiseKphMin,
+    intercityCruiseKphMax,
+    intercityUrbanKphMean: validation.positiveNumber('INTERCITY_URBAN_KPH_MEAN', '17'),
+    intercityUrbanKphSd: validation.nonNegativeNumber('INTERCITY_URBAN_KPH_SD', '4'),
+
+    // §12.7
+    intercityUncertaintyBaseSeconds: validation.positiveNumber(
+      'INTERCITY_UNCERTAINTY_BASE_SECONDS',
+      '120',
+    ),
+    intercityUncertaintyPerHighwayKmSeconds: validation.positiveNumber(
+      'INTERCITY_UNCERTAINTY_PER_HIGHWAY_KM_SECONDS',
+      '1.5',
+    ),
+    intercityUncertaintyPerHaltSeconds: validation.positiveNumber(
+      'INTERCITY_UNCERTAINTY_PER_HALT_SECONDS',
+      '420',
+    ),
+    intercityUncertaintyUrbanApproachSeconds: validation.nonNegativeNumber(
+      'INTERCITY_UNCERTAINTY_URBAN_APPROACH_SECONDS',
+      '600',
+    ),
+    intercityPredictionHorizonSeconds: validation.positiveInteger(
+      'INTERCITY_PREDICTION_HORIZON_SECONDS',
+      '21600',
+    ),
+    intercitySuggestedPollSeconds: validation.positiveInteger('INTERCITY_SUGGESTED_POLL_SECONDS', '120'),
+
+    // §12.8. `MANIFEST_TOKEN` is deliberately a different credential from
+    // `ADMIN_TOKEN` (§10.5): the BPP is a peer service, not an operator of
+    // this one, and one shared credential would let a ticketing platform
+    // force a coach dark. Unset means `404`, not `401`.
+    manifestToken: validation.optional('MANIFEST_TOKEN'),
+    intercityManifestMaxAgeSeconds: validation.positiveInteger(
+      'INTERCITY_MANIFEST_MAX_AGE_SECONDS',
+      '3600',
+    ),
+    intercityManifestTtlMaxSeconds: validation.positiveInteger(
+      'INTERCITY_MANIFEST_TTL_MAX_SECONDS',
+      '86400',
+    ),
+    intercityProgressLogMaxEntries: validation.positiveInteger(
+      'INTERCITY_PROGRESS_LOG_MAX_ENTRIES',
+      '40',
+    ),
   } as const
 
   validation.finish()
@@ -355,6 +509,21 @@ class Validation {
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean)
+  }
+
+  /**
+   * §12.1: "Must be at least 2 for a duty that crosses midnight." A one-day
+   * roster window cannot hold both the service date a coach departed on and
+   * the calendar day it arrives on, so a coach dispatched at 22:59 would fall
+   * out of the roster at midnight while still on the road.
+   */
+  rosterDays(name: string, fallback: string): number {
+    const value = this.integer(name, fallback)
+    if (Number.isSafeInteger(value) && value >= 2) return value
+    this.issue(
+      `${name} must be an integer of at least 2 (a cross-midnight duty needs two service days), got ${JSON.stringify(this.raw(name, fallback))}`,
+    )
+    return Number(fallback)
   }
 
   /** §2.3/§12.1: a comma-separated list of three-letter hub codes, none containing I or O. */

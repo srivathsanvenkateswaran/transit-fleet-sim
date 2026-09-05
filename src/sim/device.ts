@@ -170,6 +170,18 @@ function nextIntervalSeconds(profile: BusDeviceProfile, bin: string, sequence: n
   return Math.max(0.001, profile.fixIntervalSeconds + jitter)
 }
 
+/**
+ * The city dropout process, exported so the intercity model can run exactly
+ * this - not a reimplementation of it - on a corridor's urban segments.
+ * docs/intercity-coaches.md §6.3: "The urban dropout process still runs on
+ * the urban segments. The first 25 km out of Bengaluru and the last 20 km
+ * into Hosapete are a city bus's problem and get a city bus's failure mode.
+ * Both mechanisms run on the same corridor, on different parts of it."
+ */
+export function poissonDropoutActive(profile: BusDeviceProfile, bin: string, at: Date): boolean {
+  return activeDropout(profile, bin, at)
+}
+
 function activeDropout(profile: BusDeviceProfile, bin: string, at: Date): boolean {
   if (profile.dropoutRatePerHour === 0) return false
   const currentMinute = Math.floor(at.getTime() / 60_000)

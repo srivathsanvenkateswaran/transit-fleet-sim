@@ -53,6 +53,16 @@ export const errors = {
     error: 'not_ready',
     message: 'The simulated world is not ready.',
   }),
+  /**
+   * docs/intercity-coaches.md §10.5. Reached only when the credential is
+   * configured and the caller presented the wrong one; a deployment that has
+   * not set `MANIFEST_TOKEN` at all gets an ordinary `404` instead, so an
+   * unset token is a surface that does not exist rather than one to guess at.
+   */
+  unauthorized: (): ApiErrorBody => ({
+    error: 'unauthorized',
+    message: 'That credential is not accepted on this path.',
+  }),
 } as const
 
 function formatDate(value: string): string {

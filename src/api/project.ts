@@ -58,6 +58,12 @@ export function projectTracking(
     progress: tracking.state === 'live' ? tracking.progress : null,
     source: tracking.source,
     reason: tracking.reason,
+    // docs/intercity-coaches.md §10.2. Both keys are spread in only when the
+    // world produced one, never as an explicit null: a bus's body is
+    // byte-identical to what it is today (criterion 105), and a coach gets
+    // two additive fields an existing parser ignores.
+    ...(tracking.deadZone == null ? {} : { deadZone: tracking.deadZone }),
+    ...(tracking.recovery == null ? {} : { recovery: tracking.recovery }),
     recoveredFromDropout: tracking.recoveredFromDropout,
   }
 }
