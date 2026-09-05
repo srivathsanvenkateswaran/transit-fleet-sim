@@ -2,6 +2,7 @@ import type { GtfsRoute, GtfsTrip, LoadedGtfs } from '../geometry/loadGtfs.js'
 import type { FleetMember } from '../world/port.js'
 import { createCursor, type BusCursor } from './cursor.js'
 import type { BusMotionProfile } from './profile.js'
+import { serviceDate } from './serviceDate.js'
 
 export interface ActiveBus {
   readonly member: FleetMember
@@ -9,6 +10,21 @@ export interface ActiveBus {
   trip: GtfsTrip
   cursor: BusCursor
   tripStartedAt: Date
+  /**
+   * docs/intercity-coaches.md §3.2: a GTFS service date is not the calendar
+   * date of a start instant - a trip starting at 00:30 can belong to the
+   * *previous* service date - so it must be an explicit field set once, at
+   * the moment a trip genuinely starts, and carried from there rather than
+   * recomputed from `tripStartedAt` wherever it is needed. For today's bus
+   * model, where every trip starts well inside daytime service and no roster
+   * disagrees with the naive calendar date, computing it at dispatch (here)
+   * and at each turnaround (`SimWorld.advanceBus`) produces the same string
+   * a fresh `serviceDate(tripStartedAt, ...)` call always did - this is a
+   * wiring fix, not a behaviour change, and `tests/sim/world.test.ts`'s
+   * existing goldens are what prove that. A future roster-authored duty
+   * assigns this field from its own data instead of deriving it at all.
+   */
+  serviceDate: string
 }
 
 export function dispatchInitialFleet(
@@ -45,6 +61,7 @@ export function dispatchInitialFleet(
         trip,
         cursor: createCursor(trip, distance, profile, member.bin, at),
         tripStartedAt: at,
+        serviceDate: serviceDate(at, profile.timezone),
       })
     }
   }

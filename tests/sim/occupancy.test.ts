@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { defaultBusOccupancyProfile, occupancyFor, type OccupancyInput } from '../../src/sim/occupancy.js'
+import {
+  defaultBusOccupancyProfile,
+  occupancyFor,
+  projectOccupancy,
+  type OccupancyInput,
+} from '../../src/sim/occupancy.js'
 
 const ROUTE_LENGTH_METRES = 20_000
 
@@ -14,14 +19,29 @@ function baseInput(overrides: Partial<OccupancyInput> = {}): OccupancyInput {
     routeLengthMetres: ROUTE_LENGTH_METRES,
     at: new Date('2026-08-20T03:00:00Z'), // 08:30 IST
     tripStartedAtMs: new Date('2026-08-20T02:00:00Z').getTime(),
+    reservation: null,
     ...overrides,
   }
+}
+
+/**
+ * The bus-facing wire shape, exactly as `SimWorld.observe` produces it: a bus
+ * always goes through `projectOccupancy`, so a test asserting on `.status` /
+ * `.percentage` should exercise the same round trip rather than reaching into
+ * `OccupancyOutcome`'s `modelled` arm directly. `reservation` is always
+ * `null` in this file's inputs, so the omitted-key arm never fires here - the
+ * dedicated reservation tests below exercise that one.
+ */
+function observe(input: OccupancyInput): import('../../src/world/port.js').OccupancyObservation {
+  const projected = projectOccupancy(occupancyFor(input))
+  if (projected === undefined) throw new Error('Unexpected omitted occupancy for an unreserved input')
+  return projected
 }
 
 describe('the demand-based occupancy model', () => {
   it('gives a dark or untracked vehicle no occupancy at all, not a zero', () => {
     for (const trackingState of ['dark', 'untracked'] as const) {
-      const observation = occupancyFor(baseInput({ trackingState }))
+      const observation = observe(baseInput({ trackingState }))
       expect(observation).toEqual({ status: 'NO_DATA_AVAILABLE' })
       expect(Object.keys(observation)).not.toContain('percentage')
     }
@@ -29,7 +49,7 @@ describe('the demand-based occupancy model', () => {
 
   it('answers identically for the same input drawn twice', () => {
     const input = baseInput()
-    expect(occupancyFor(input)).toEqual(occupancyFor(baseInput()))
+    expect(observe(input)).toEqual(observe(baseInput()))
   })
 
   it('never lets status and percentage disagree, across the whole reachable range', () => {
@@ -37,7 +57,7 @@ describe('the demand-based occupancy model', () => {
       for (let fraction = 0; fraction <= 1; fraction += 0.05) {
         for (const minuteOfDay of [0, 240, 510, 840, 1_110, 1_380]) {
           const at = atMinutes(minuteOfDay)
-          const observation = occupancyFor(
+          const observation = observe(
             baseInput({
               routeNumber,
               distanceAlongRouteMetres: fraction * ROUTE_LENGTH_METRES,
@@ -63,7 +83,7 @@ describe('the demand-based occupancy model', () => {
       for (const routeId of Array.from({ length: 8 }, (_, index) => `route-${index}`)) {
         for (let fraction = 0; fraction <= 1; fraction += 0.02) {
           const at = atMinutes(8 * 60 + 15)
-          const observation = occupancyFor(
+          const observation = observe(
             baseInput({
               bin,
               routeId,
@@ -95,7 +115,7 @@ describe('the demand-based occupancy model', () => {
       for (let minuteOfDay = 0; minuteOfDay < 1_440; minuteOfDay += 20) {
         for (let fraction = 0; fraction <= 1; fraction += 0.1) {
           const at = atMinutes(minuteOfDay)
-          const observation = occupancyFor(
+          const observation = observe(
             baseInput({
               bin,
               distanceAlongRouteMetres: fraction * ROUTE_LENGTH_METRES,
@@ -113,25 +133,25 @@ describe('the demand-based occupancy model', () => {
 
   it('is fuller in the centre-bound direction during the morning peak than the reverse', () => {
     const at = atMinutes(8 * 60 + 15)
-    const inbound = occupancyFor(baseInput({ directionId: 0, at, tripStartedAtMs: at.getTime() }))
-    const outbound = occupancyFor(baseInput({ directionId: 1, at, tripStartedAtMs: at.getTime() }))
+    const inbound = observe(baseInput({ directionId: 0, at, tripStartedAtMs: at.getTime() }))
+    const outbound = observe(baseInput({ directionId: 1, at, tripStartedAtMs: at.getTime() }))
     expect(inbound.percentage ?? 0).toBeGreaterThan(outbound.percentage ?? 0)
   })
 
   it('flips which direction is fuller between the morning and evening peaks', () => {
     const morning = atMinutes(8 * 60 + 15)
     const evening = atMinutes(18 * 60 + 15)
-    const morningInbound = occupancyFor(baseInput({ directionId: 0, at: morning, tripStartedAtMs: morning.getTime() }))
-    const morningOutbound = occupancyFor(baseInput({ directionId: 1, at: morning, tripStartedAtMs: morning.getTime() }))
-    const eveningInbound = occupancyFor(baseInput({ directionId: 0, at: evening, tripStartedAtMs: evening.getTime() }))
-    const eveningOutbound = occupancyFor(baseInput({ directionId: 1, at: evening, tripStartedAtMs: evening.getTime() }))
+    const morningInbound = observe(baseInput({ directionId: 0, at: morning, tripStartedAtMs: morning.getTime() }))
+    const morningOutbound = observe(baseInput({ directionId: 1, at: morning, tripStartedAtMs: morning.getTime() }))
+    const eveningInbound = observe(baseInput({ directionId: 0, at: evening, tripStartedAtMs: evening.getTime() }))
+    const eveningOutbound = observe(baseInput({ directionId: 1, at: evening, tripStartedAtMs: evening.getTime() }))
     expect(morningInbound.percentage ?? 0).toBeGreaterThan(morningOutbound.percentage ?? 0)
     expect(eveningOutbound.percentage ?? 0).toBeGreaterThan(eveningInbound.percentage ?? 0)
   })
 
   it('reads far fuller at the evening peak than at eleven at night, same route and position', () => {
-    const peak = occupancyFor(baseInput({ at: atMinutes(18 * 60 + 15), tripStartedAtMs: 1 }))
-    const lateNight = occupancyFor(baseInput({ at: atMinutes(23 * 60), tripStartedAtMs: 1 }))
+    const peak = observe(baseInput({ at: atMinutes(18 * 60 + 15), tripStartedAtMs: 1 }))
+    const lateNight = observe(baseInput({ at: atMinutes(23 * 60), tripStartedAtMs: 1 }))
     expect(peak.percentage ?? 0).toBeGreaterThan((lateNight.percentage ?? 0) + 30)
     expect(lateNight.status === 'EMPTY' || lateNight.status === 'MANY_SEATS_AVAILABLE').toBe(true)
   })
@@ -147,8 +167,8 @@ describe('the demand-based occupancy model', () => {
       at: atMinutes(8 * 60 + 15),
       tripStartedAtMs: 1,
     })
-    const ordinary = occupancyFor(input)
-    const airport = occupancyFor({ ...input, routeNumber: 'KIA-4' })
+    const ordinary = observe(input)
+    const airport = observe({ ...input, routeNumber: 'KIA-4' })
     expect(ordinary.percentage).toBe(airport.percentage)
     expect(ordinary.status).toBe('STANDING_ROOM_ONLY')
     expect(airport.status).toBe('FEW_SEATS_AVAILABLE')
@@ -161,7 +181,7 @@ describe('the demand-based occupancy model', () => {
       const standingCapacity = routeNumber === 'KIA-4' ? profile.airportStandingCapacity : profile.standingCapacity
       const seatedShare = seatedCapacity / (seatedCapacity + standingCapacity)
       for (let fraction = 0; fraction <= 1; fraction += 0.05) {
-        const observation = occupancyFor(
+        const observation = observe(
           baseInput({
             routeNumber,
             distanceAlongRouteMetres: fraction * ROUTE_LENGTH_METRES,

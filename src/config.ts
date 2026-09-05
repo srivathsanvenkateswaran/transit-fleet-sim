@@ -208,6 +208,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       'METRO_MAX_STATION_GAP_METRES',
       '4000',
     ),
+
+    // docs/intercity-coaches.md §12.1. Unset means no coaches at all (§14.1) -
+    // this is the one config surface built in this pass whose entire job is
+    // to stay off by default, because the consuming app's client rejects an
+    // unknown vehicle class until it is released separately from this one.
+    intercityCorridors: validation.optionalList('INTERCITY_CORRIDORS'),
+    intercityTopologyPath: resolve(
+      validation.nonEmpty('INTERCITY_TOPOLOGY_PATH', './data/bundle/corridor-topology.json'),
+    ),
+    intercityHubCodes: validation.hubCodeList('INTERCITY_HUB_CODES', 'KBS,MYS,MDK,HUB,HSP'),
+    intercityServiceClasses: validation.list(
+      'INTERCITY_SERVICE_CLASSES',
+      'karnataka_sarige,rajahamsa_executive,airavat,airavat_club_class,ambaari_utsav,pallakki',
+    ),
   } as const
 
   validation.finish()
@@ -326,6 +340,32 @@ class Validation {
     if (/^[A-HJ-NP-Z]{3}$/.test(value)) return value
     this.issue(`${name} must be three letters without I or O, got ${JSON.stringify(raw)}`)
     return fallback
+  }
+
+  /**
+   * §14.1: unset means the feature is off, which `list()` cannot express -
+   * it requires at least one value and falls back to a non-empty default
+   * when the variable is missing. `INTERCITY_CORRIDORS` unset must mean "no
+   * coaches at all", so an empty list is the valid, default answer here.
+   */
+  optionalList(name: string): readonly string[] {
+    const raw = this.optional(name)
+    if (raw === null) return []
+    return raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+  }
+
+  /** §2.3/§12.1: a comma-separated list of three-letter hub codes, none containing I or O. */
+  hubCodeList(name: string, fallback: string): readonly string[] {
+    const values = this.list(name, fallback)
+    const bad = values.filter((value) => !/^[A-HJ-NP-Z]{3}$/.test(value.toUpperCase()))
+    if (bad.length > 0) {
+      this.issue(`${name} must list three-letter hub codes without I or O; invalid: ${bad.join(', ')}`)
+      return fallback.split(',')
+    }
+    return values.map((value) => value.toUpperCase())
   }
 
   url(name: string, fallback: string): string {

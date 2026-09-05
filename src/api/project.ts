@@ -10,6 +10,11 @@ import type {
 const trackingSourceByClass = {
   bus: 'simulated_gnss',
   metro: 'simulated_signalling',
+  // A coach's AIS-140 device is the same kind of GNSS unit a bus carries
+  // (docs/intercity-coaches.md §4.3) - this is a lookup table keyed on the
+  // fact, not a `.class === 'coach'` branch, so it stays outside the
+  // three-file vehicle-class boundary in tests/contract/sourceBoundaries.test.ts.
+  coach: 'simulated_gnss',
 } as const
 
 export function observationFor(

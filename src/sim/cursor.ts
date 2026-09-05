@@ -12,6 +12,19 @@ export interface BusCursor {
   segment: number
   stopVisits: number
   speedKph: number
+  /**
+   * docs/intercity-coaches.md §3.4: "A run has no end, only a layover... There
+   * is no cursor state for 'this vehicle's duty is over and it is not running
+   * anything.'" This is that state. Null for the life of a looping bus, which
+   * never sets it (`SimWorld.advanceBus` always flips direction on
+   * `reachedTerminal` instead - see `advanceCursor`'s `CursorAdvanceResult`).
+   * Set once, by `advanceOneWay` below, for a one-way run that has reached
+   * its final stop: the instant it happened, in milliseconds since the
+   * epoch, on the same clock every other cursor field uses. A cursor with a
+   * non-null `arrivedAtMs` does not move again no matter how much more
+   * elapsed time it is given - the duty is finished, not paused.
+   */
+  arrivedAtMs: number | null
 }
 
 export interface CursorAdvanceResult {
@@ -36,6 +49,7 @@ export function createCursor(
     segment: 0,
     stopVisits: 0,
     speedKph: drawBusSpeedKph(profile, bin, 0, at),
+    arrivedAtMs: null,
   }
 }
 
@@ -89,4 +103,40 @@ export function advanceCursor(
 export function findNextStopIndex(stops: readonly GtfsStopTime[], distanceMetres: number): number {
   const index = stops.findIndex((stop) => stop.stopDistanceMetres > distanceMetres)
   return index < 0 ? stops.length : index
+}
+
+export interface OneWayAdvanceResult {
+  readonly consumedSeconds: number
+  readonly arrived: boolean
+}
+
+/**
+ * docs/intercity-coaches.md §3.4: a coach that reaches its terminal does not
+ * turn round - it is finished. This is `advanceCursor` (unchanged; a city
+ * bus's loop-forever caller, `SimWorld.advanceBus`, keeps using it directly
+ * and is not touched by anything in this function) wrapped with the one
+ * decision a one-way run needs and a looping one must never make: on
+ * `reachedTerminal`, stop advancing rather than flip direction and dispatch
+ * a new trip.
+ *
+ * Idempotent once arrived: a cursor with `arrivedAtMs` already set consumes
+ * none of `elapsedSeconds` and reports `arrived: true` immediately, so a
+ * caller that keeps ticking an arrived duty by mistake cannot make it drive
+ * again.
+ */
+export function advanceOneWay(
+  cursor: BusCursor,
+  trip: GtfsTrip,
+  shape: ShapeIndex,
+  from: Date,
+  elapsedSeconds: number,
+  profile: BusMotionProfile,
+  bin: string,
+): OneWayAdvanceResult {
+  if (cursor.arrivedAtMs !== null) return { consumedSeconds: 0, arrived: true }
+  const result = advanceCursor(cursor, trip, shape, from, elapsedSeconds, profile, bin)
+  if (result.reachedTerminal) {
+    cursor.arrivedAtMs = from.getTime() + result.consumedSeconds * 1000
+  }
+  return { consumedSeconds: result.consumedSeconds, arrived: cursor.arrivedAtMs !== null }
 }

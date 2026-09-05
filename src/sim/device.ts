@@ -77,9 +77,18 @@ export function updateDevice(
   at: Date,
   capture: (fixSequence: number) => FixSnapshot,
   profile: BusDeviceProfile = defaultBusDeviceProfile,
+  // docs/intercity-coaches.md §3.6: the Poisson dropout process must bucket
+  // on simulated elapsed time, not on wall-clock time - see the identical
+  // note on `maybeSwapDuty` in duty.ts. `at` still times every fix this
+  // function actually records (`observedAt`, `nextFixAtMs`): a device takes
+  // a fix in real time regardless of how fast the world is simulating
+  // distance, and only the seeded dropout draw's bucket key moves to the
+  // simulated clock. Defaults to `at`, so a caller that never passes the two
+  // apart (every existing bus test) sees no change at all.
+  dropoutBucketAt: Date = at,
 ): void {
   if (!state.hasDevice) return
-  const dropping = activeDropout(profile, state.bin, at)
+  const dropping = activeDropout(profile, state.bin, dropoutBucketAt)
   const recovered = state.dropoutActive && !dropping
   state.dropoutActive = dropping
   if (dropping) return

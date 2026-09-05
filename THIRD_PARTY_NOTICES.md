@@ -23,3 +23,13 @@ snapshot and measurements used here.
 `data/bundle/metro-topology.json` is a derived database from OpenStreetMap
 route relations and is published under the Open Database Licence (ODbL) 1.0.
 © OpenStreetMap contributors. The source code remains MIT licensed.
+
+`data/bundle/corridor-topology.json` is likewise a derived database: its
+routed polylines come from OSRM's public routing service running against a
+current OpenStreetMap extract (`data/bundle/SOURCE.md` records the exact
+pipeline and the committed fixtures it was built from). It is published under
+the Open Database Licence (ODbL) 1.0. © OpenStreetMap contributors. The
+routing engine itself, OSRM, is BSD-2 licensed; using its public API to
+produce this derived database adds no further obligation, and its version is
+recorded in `SOURCE.md` for traceability. The source code remains MIT
+licensed.

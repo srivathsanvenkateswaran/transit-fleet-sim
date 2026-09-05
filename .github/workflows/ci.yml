@@ -28,6 +28,9 @@ jobs:
       - name: Run tests
         run: npm test -- --run
 
+      - name: Check corridor topology integrity gate
+        run: npm run check-corridor-topology
+
       - name: Run lint
         run: npm run lint
 

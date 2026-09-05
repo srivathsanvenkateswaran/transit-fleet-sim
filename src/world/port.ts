@@ -23,8 +23,15 @@
  * never merged.
  */
 
-/** SPEC 3.3. One vehicle model, two profiles. */
-export type VehicleClass = 'bus' | 'metro'
+/**
+ * SPEC 3.3. One vehicle model, two profiles - now three.
+ * `'coach'` is docs/intercity-coaches.md §2.2's addition, gated entirely
+ * behind `INTERCITY_CORRIDORS` (unset by default, §14.1): nothing in `src/`
+ * outside `sim/profile.ts`, `sim/device.ts` and `sim/duty.ts` may branch on
+ * this value (tests/contract/sourceBoundaries.test.ts), and the existing bus
+ * and metro paths never construct one.
+ */
+export type VehicleClass = 'bus' | 'metro' | 'coach'
 
 /* ------------------------------------------------------------------ *
  * Duty: what is this vehicle doing?  (SPEC 5.1)
@@ -238,6 +245,16 @@ export interface WorldStatus {
   /** How far the last tick ran behind its schedule. */
   readonly tickLagMs: number
   readonly seed: number
+  /**
+   * docs/intercity-coaches.md §10.7/§14.1: present only when
+   * `INTERCITY_CORRIDORS` is set - omitted entirely otherwise, so an existing
+   * consumer's parsed `/readyz` body is unaffected by a deployment that never
+   * turns coaches on. The roster-driven counts that section also names
+   * (`coachesRostered`, `coachesActive`, `rosterWindow`) are not produced by
+   * this pass - see the README note on scope - and are deliberately not
+   * stubbed here rather than faked with a placeholder value.
+   */
+  readonly corridors?: number
 }
 
 /**

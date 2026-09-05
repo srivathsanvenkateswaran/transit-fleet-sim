@@ -207,6 +207,24 @@ movement, independent duty and tracking state machines, resolve and
 single-vehicle JSON endpoints, probes, config and Docker, plus bundled OSM
 metro geometry and `/fleet/metro/arrivals`. GTFS-Realtime remains next.
 
+**Intercity coaches** ([`docs/intercity-coaches.md`](docs/intercity-coaches.md))
+are in progress, behind `INTERCITY_CORRIDORS` (unset by default - that
+document's §14.1 explains why). Built so far: the Bengaluru-Hosapete-Hampi
+corridor's geometry, routed over real roads and committed at
+`data/bundle/corridor-topology.json`, with its integrity gate
+(`npm run check-corridor-topology`); the four-corporation identity layer
+(`src/fleet/corporation.ts`, `src/fleet/serviceClass.ts`) and its own registry
+assertions; the duty-model fixes a cross-midnight roster needs (the seeded
+duty draw keyed on the duty's own service date rather than the world's boot
+instant, service dates carried as an explicit field, a one-way run that
+completes instead of looping, and seeded time buckets that track
+`SIM_SPEEDUP`); and the structural refusal to ever emit an occupancy for a
+reserved duty (`src/sim/occupancy.ts`'s `OccupancyOutcome`). Not yet built: the
+multi-day departure roster and `#active` tick loop, the intercity device and
+dead-zone model, the prediction band, the manifest ingress, and the HTTP/GTFS-
+Realtime surface that would make a coach resolvable - all ordered after this
+increment.
+
 The checked wire output is under [`evidence/`](evidence/), the sixteen complete
 resolve-body goldens are under [`tests/api/goldens/`](tests/api/goldens/), and
 the criterion-by-criterion result is

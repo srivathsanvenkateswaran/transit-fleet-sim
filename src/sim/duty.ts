@@ -95,13 +95,25 @@ export function maybeSwapDuty(
   bin: string,
   at: Date,
   profile: BusDutyProfile = defaultBusDutyProfile,
+  // docs/intercity-coaches.md §3.6: the seeded draw must bucket on simulated
+  // elapsed time, not on wall-clock time, or `SIM_SPEEDUP` desynchronises the
+  // calendar from the buckets - a nine-hour duty run at the speedup a demo
+  // needs would see this process fire once where it should fire several
+  // times. `bucketAt` defaults to `at`, which is exactly what `SimWorld`
+  // passes at `SIM_SPEEDUP=1`: its own simulated clock and the wall clock
+  // advance identically, so every existing bus golden is unaffected. Only a
+  // caller running faster than real time, which today is only `SimWorld`
+  // itself, ever passes the two apart.
+  bucketAt: Date = at,
 ): void {
   if (state.status !== 'confirmed' || profile.swapRatePerDay === 0) return
-  const minute = Math.floor(at.getTime() / 60_000)
+  const minute = Math.floor(bucketAt.getTime() / 60_000)
   const probabilityPerMinute = 1 - Math.exp(-profile.swapRatePerDay / 1_440)
   if (rand(profile.seed, bin, 'duty_swap', minute) >= probabilityPerMinute) return
   const unknown = rand(profile.seed, bin, 'duty_swap_result', minute) < 0.5
   state.status = unknown ? 'unknown' : 'inferred'
+  // `since` is a fact about the real world - when this API would have first
+  // reported the swap - and stays on `at`, never on the simulated bucket.
   state.since = new Date(at)
   state.confidence = unknown ? null : inferredConfidence(profile, bin, minute)
   state.reason = 'roster_swapped'
@@ -125,7 +137,9 @@ export function dutyObservation(
       ? {
           id: bus.trip.id,
           startTime: bus.trip.stops[0]?.departureTime ?? '00:00:00',
-          startDate: serviceDate(bus.tripStartedAt, config.simTimezone),
+          // §3.2: read the carried field, never re-derived from the start
+          // instant here - see `ActiveBus.serviceDate`'s own comment for why.
+          startDate: bus.serviceDate,
           startedAt: bus.tripStartedAt.toISOString(),
         }
       : null,
@@ -169,15 +183,4 @@ function alternatives(
 
 function routeRef(route: GtfsRoute): RouteRef {
   return { id: route.id, number: route.number, name: route.name, nameLocal: null }
-}
-
-function serviceDate(at: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(at)
-  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
-  return `${value('year')}${value('month')}${value('day')}`
 }
