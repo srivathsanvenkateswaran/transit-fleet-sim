@@ -19,4 +19,22 @@ describe('seeded fleet generation', () => {
       JSON.stringify(generateFleet({ ...options, seed: 10 })),
     )
   })
+
+  it('sizes each route from busesPerRouteByRoute when given one, falling back to the flat count otherwise', () => {
+    const fleet = generateFleet({
+      seed: 3,
+      routes: ['500-D', 'G-4', '335-E'],
+      busesPerRoute: 2,
+      busesPerRouteByRoute: new Map([
+        ['500-D', 5],
+        ['G-4', 0],
+        // '335-E' deliberately absent - it must fall back to busesPerRoute.
+      ]),
+      hub: 'BLR',
+    })
+    const byRoute = (route: string) => fleet.filter((vehicle) => vehicle.homeRouteNumber === route)
+    expect(byRoute('500-D')).toHaveLength(5)
+    expect(byRoute('G-4')).toHaveLength(0)
+    expect(byRoute('335-E')).toHaveLength(2)
+  })
 })

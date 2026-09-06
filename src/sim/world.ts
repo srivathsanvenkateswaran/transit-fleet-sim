@@ -482,8 +482,15 @@ export { coachSlotsFor }
 export async function createWorld(
   fleet: readonly FleetMember[],
   preloaded?: Awaited<ReturnType<typeof loadIntercity>>,
+  // `src/index.ts` loads the (now several-hundred-route) bundle once to size
+  // the fleet's schedule-derived roster (`computeRouteRosterSizes`) before
+  // this function ever runs, and passes that same `LoadedGtfs` through here
+  // rather than making this call parse the bundle a second time. Tests, and
+  // anything else that does not need roster sizing up front, simply omit it
+  // and get the load-it-here behaviour this always had.
+  preloadedGtfs?: LoadedGtfs,
 ): Promise<SimWorld> {
-  const gtfs = await loadGtfs()
+  const gtfs = preloadedGtfs ?? (await loadGtfs())
   const metro = await loadMetroTopology(config.metroTopologyPath, config.metroMaxStationGapMetres)
   const intercity = preloaded ?? (await loadIntercity())
   const bootAt = createClock(config.simClock).now()
