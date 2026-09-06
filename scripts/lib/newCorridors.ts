@@ -60,6 +60,40 @@ export interface NewCorridorDef {
  *   dataset carries zero for this corridor); dir0 (Dandeli origin, matching
  *   the id) used for the invented placeholders `build-corridor-roster.ts`
  *   adds instead.
+ *
+ * Four more corridors, added when the owner's own audit
+ * (`track-audit.ts`, run against Tatak's planner) showed the rider being
+ * offered a coach on four corridors Tatak had just gained and this
+ * simulator had never heard of. Same pipeline, same reasoning ladder:
+ *
+ * - BNG-BJP (Vijayapura): dir0 has one usable real number (2005BNGBJP;
+ *   the corridor's other dir0 code, 2205BNGBJP, is KALYANA_RATHA, a class
+ *   `CLASS_MAP` has no row for), dir1 has one (1744BJPBNG, same exclusion
+ *   on its own KALYANA_RATHA sibling). Tied, so kept at dir0 to match the
+ *   id's own reading, same tie-break BNG-MYS already uses.
+ * - BNG-BDM (Badami): dir0's one real number, 2015BNGBDM, is
+ *   NON_AC_SLEEPER - unmapped, so dir0 has zero usable. dir1 has three
+ *   (0600BDMBNG, 0715BDMBNG, 0745BDMBNG, all KARNATAKA_SARIGE). By the
+ *   MYS-MDK/MYS-MNG rule that would mean reversing to dir1 - except every
+ *   demo itinerary this simulator serves departs Bengaluru, so a
+ *   Badami-origin corridor would carry real numbers this project never
+ *   shows a rider. Kept at dir0 anyway, on zero usable real numbers, and
+ *   `buildCorridorRoster`'s existing DND-ANK fallback fires: this corridor's
+ *   whole roster is Tatak's own one generated dir0 slot, invented and
+ *   labelled as such.
+ * - BNG-BGK (Bagalkot): dir0 has two usable real numbers, 1930BNGBLI and
+ *   2100BNGBLI (`BLI` is Bilagi, a stop this corridor's own feed carries
+ *   short of Bagalkot itself - see `docs/research/karnataka-corridor-
+ *   evidence.md`'s letter-group table in the Tatak checkout). Kept at dir0,
+ *   the same Bengaluru-origin reading every other corridor here uses.
+ * - BNG-HBL (Hubballi): dir0 has five usable real numbers (four
+ *   AIRAVAT_CLUB_CLASS, one PALLAKKI; NON_AC_SLEEPER's one dir0 code is
+ *   unmapped same as BDM's). dir1 has many more - seventeen real
+ *   KARNATAKA_SARIGE numbers alone - but every one of them is a
+ *   Hubballi-origin departure, which is not the leg any demo itinerary
+ *   needs. Kept at dir0 for the same reason BDM is: this project only ever
+ *   shows a rider the Bengaluru-origin half of a corridor, so that is the
+ *   half worth having real numbers for.
  */
 export const NEW_CORRIDORS: readonly NewCorridorDef[] = [
   { id: 'BNG-MYS', name: 'Bengaluru - Mysuru', tatakId: 'KA-BNG-MYS', tatakDir: 'ka-bng-mys', tatakDirectionId: 0, hub: 'KBS' },
@@ -69,22 +103,37 @@ export const NEW_CORRIDORS: readonly NewCorridorDef[] = [
   { id: 'MYS-MNG', name: 'Mangaluru - Mysuru', tatakId: 'KA-MYS-MNG', tatakDir: 'ka-mys-mng', tatakDirectionId: 1, hub: 'MNG' },
   { id: 'MNG-KWR', name: 'Mangaluru - Karwar', tatakId: 'KA-COAST', tatakDir: 'ka-coast', tatakDirectionId: 0, hub: 'MNG' },
   { id: 'DND-ANK', name: 'Dandeli - Ankola', tatakId: 'KA-DND-ANK', tatakDir: 'ka-dnd-ank', tatakDirectionId: 0, hub: 'DND' },
+  { id: 'BNG-BJP', name: 'Bengaluru - Vijayapura', tatakId: 'KA-BNG-BJP', tatakDir: 'ka-bng-bjp', tatakDirectionId: 0, hub: 'KBS' },
+  { id: 'BNG-BDM', name: 'Bengaluru - Badami', tatakId: 'KA-BNG-BDM', tatakDir: 'ka-bng-bdm', tatakDirectionId: 0, hub: 'KBS' },
+  { id: 'BNG-BGK', name: 'Bengaluru - Bagalkot', tatakId: 'KA-BNG-BGK', tatakDir: 'ka-bng-bgk', tatakDirectionId: 0, hub: 'KBS' },
+  { id: 'BNG-HBL', name: 'Bengaluru - Hubballi', tatakId: 'KA-BNG-HBL', tatakDir: 'ka-bng-hbl', tatakDirectionId: 0, hub: 'KBS' },
 ]
 
 /**
  * This simulator's `ServiceClassId` for every Tatak class this project can
  * roster. A Tatak class with no row here (`ashwamedha`, `ev_power_plus`,
  * `non_ac_sleeper`, `ac_seater_executive_chair`, `ambaari_dream_class`,
- * `airavat_club_class_2`) has no matching row in
- * `data/bundle/corridor-classes.json` and gets no roster entry at all -
- * this repo could not generate a coach for it regardless of what this
- * script did.
+ * `kalyana_ratha`) has no matching row in `data/bundle/corridor-classes.json`
+ * and gets no roster entry at all - this repo could not generate a coach for
+ * it regardless of what this script did.
+ *
+ * `AIRAVAT_CLUB_CLASS_2` is the one exception, mapped onto the same
+ * `airavat_club_class` row rather than left out: it is the class behind
+ * BNG-MNG's own `1004BNGMNG`, and everything Tatak's own catalogue says
+ * about it (`src/classes.ts` in that checkout) describes the same premium
+ * AC sleeper product as `AIRAVAT_CLUB_CLASS`, one generation apart on the
+ * fleet rather than a different thing a rider buys. Treating "2" as its own
+ * `ServiceClassId` would mean a new row in `corridor-classes.json`, a new
+ * name in `INTERCITY_SERVICE_CLASSES`, and a fleet-class distinction this
+ * simulator has no other use for - all to keep separate two things Tatak's
+ * own documentation says are the same coach.
  */
 export const CLASS_MAP: Readonly<Record<string, string>> = {
   KARNATAKA_SARIGE: 'karnataka_sarige',
   RAJAHAMSA_EXECUTIVE: 'rajahamsa_executive',
   AIRAVAT: 'airavat',
   AIRAVAT_CLUB_CLASS: 'airavat_club_class',
+  AIRAVAT_CLUB_CLASS_2: 'airavat_club_class',
   AMBAARI_UTSAV: 'ambaari_utsav',
   PALLAKKI: 'pallakki',
 }
@@ -99,15 +148,44 @@ export const CLASS_MAP: Readonly<Record<string, string>> = {
  *
  * - 2105BNGMRC: KA-BNG-MYS and KA-MYS-MDK
  * - 2131MRCBNG: KA-BNG-MYS and KA-MYS-MDK
- * - 0801BNGCDP: KA-BNG-MNG and KA-COAST
  * - 2334BNGMNG: KA-BNG-MNG and KA-MYS-MNG
+ *
+ * `0801BNGCDP` used to be a fifth entry here (KA-BNG-MNG and KA-COAST) and
+ * is not any more - see `CORRIDOR_EXCLUSIVE_SERVICE_NUMBERS` below for why
+ * that one code turned out not to be this kind of ambiguity at all.
  */
 export const AMBIGUOUS_SERVICE_NUMBERS: ReadonlySet<string> = new Set([
   '2105BNGMRC',
   '2131MRCBNG',
-  '0801BNGCDP',
   '2334BNGMNG',
 ])
+
+/**
+ * Real service numbers Tatak's own dataset sights on more than one
+ * corridor feed, kept on exactly one of them rather than dropped from
+ * every corridor the way `AMBIGUOUS_SERVICE_NUMBERS` is.
+ *
+ * The distinction from that set matters and is worth stating plainly:
+ * `src/intercity/sourced.ts` in the Tatak checkout is explicit that a
+ * through-service is stamped onto every corridor feed that plausibly
+ * carries it, once per town it is SIGHTED at - that is Tatak's own design,
+ * not a data error, and it is a completely different situation from the
+ * four codes above, where Tatak's own comment admits it cannot tell which
+ * of two corridors the working actually belongs to.
+ *
+ * `0801BNGCDP` decodes to a 08:01 Bengaluru departure bound for `CDP` -
+ * Kundapura (`docs/research/karnataka-corridor-evidence.md`'s letter-group
+ * table, in the Tatak checkout) - a coastal town on `KA-COAST`, not a stop
+ * on the Mangaluru trunk `KA-BNG-MNG` models. Both feeds carry it as a real
+ * dir0 KARNATAKA_SARIGE working because the road out of Bengaluru is one
+ * road as far as Udupi, then forks; this project's own corridors split
+ * that one road into two, so the code has to pick one of them rather than
+ * being dropped from both. `MNG-KWR` (built from `KA-COAST`) is the pick,
+ * on the destination the code itself names.
+ */
+export const CORRIDOR_EXCLUSIVE_SERVICE_NUMBERS: Readonly<Record<string, string>> = {
+  '0801BNGCDP': 'MNG-KWR',
+}
 
 /**
  * Stand-id codes for every boarding point across the seven new corridors,
@@ -120,6 +198,17 @@ export const STAND_CODE_BY_TATAK_STOP_ID: Readonly<Record<string, string>> = {
   'KA-BP-BNG-MAJESTIC': 'MAJ',
   'KA-BP-BNG-YESHWANTHPUR': 'YWP',
   'KA-BP-BNG-MYSORE-ROAD': 'MYR',
+  // Never needed before this pass: no earlier `buildFromTatak` corridor
+  // rode the Bengaluru-Hosapete trunk, because BNG-HSP itself is the one
+  // corridor built from an authored stand list rather than from Tatak. All
+  // four new corridors below share some or all of it.
+  'KA-BP-BNG-PEENYA': 'PNY',
+  'KA-BP-TUMAKURU': 'TUM',
+  'KA-BP-SIRA': 'SIR',
+  'KA-BP-HIRIYUR': 'HRR',
+  'KA-BP-CHITRADURGA': 'CTD',
+  'KA-BP-KUDLIGI': 'KDL',
+  'KA-BP-HOSAPETE': 'HSP',
   'KA-BP-NELAMANGALA': 'NLM',
   'KA-BP-KUNIGAL': 'KNG',
   'KA-BP-RAMANAGARA': 'RMN',
@@ -154,6 +243,22 @@ export const STAND_CODE_BY_TATAK_STOP_ID: Readonly<Record<string, string>> = {
   'KA-BP-ANKOLA': 'ANK',
   'KA-BP-KARWAR': 'KWR',
   'KA-BP-DANDELI': 'DND',
+  // Added alongside BNG-BJP, BNG-BDM and BNG-BGK, which share one trunk out
+  // of Hosapete (Kustagi, Ilkal, Hungund) before splitting to their own
+  // three towns.
+  'KA-BP-KUSTAGI': 'KST',
+  'KA-BP-ILKAL': 'ILK',
+  // Not 'HUN' - Hunsur already holds that on the Mysuru-Madikeri corridor,
+  // and STAND_CODE_BY_TATAK_STOP_ID is keyed statewide, not per corridor.
+  'KA-BP-HUNGUND': 'HGD',
+  'KA-BP-VIJAYAPURA': 'BJP',
+  'KA-BP-BADAMI': 'BDM',
+  'KA-BP-BAGALKOT': 'BGK',
+  // BNG-HBL's own trunk out of Chitradurga, distinct from the Hosapete one
+  // above - Hubballi is reached via Davanagere and Haveri, not Kustagi.
+  'KA-BP-DAVANAGERE': 'DVG',
+  'KA-BP-HAVERI': 'HVR',
+  'KA-BP-HUBBALLI': 'HBL',
 }
 
 export function standCodeFor(tatakStopId: string): string {
@@ -167,6 +272,16 @@ const CORPORATION_BY_TERRITORY: Readonly<Record<string, Corporation>> = {
   NWKRTC: 'NWKRTC',
   KKRTC: 'KKRTC',
   BMTC: 'BMTC',
+  // Every stop on the shared Bengaluru-Hosapete trunk (Peenya through
+  // Hosapete) carries an empty `tatak_territory_corporation` in every Tatak
+  // feed that names it, including `KA-BNG-HMP` itself - a gap in Tatak's
+  // own research, not a fourth corporation. This project's own call for the
+  // gap: the whole stretch is undisputed KSRTC territory in reality (the
+  // hand-authored BNG-HSP corridor's own `CORPORATIONS` already says as
+  // much, splitting to KKRTC only past Hosapete), so an empty string reads
+  // as KSRTC here rather than failing the build over a field Tatak never
+  // filled in for this one road.
+  '': 'KSRTC',
 }
 
 export function corporationForTerritory(territoryCorporation: string): Corporation {

@@ -1,9 +1,15 @@
 /**
- * Appends roster entries for the seven `NEW_CORRIDORS` (see
+ * Appends roster entries for the eleven `NEW_CORRIDORS` (see
  * `scripts/lib/newCorridors.ts`) to `data/bundle/corridor-roster.json`,
  * read from the same Tatak GTFS `scripts/build-corridors.ts` reads for
- * topology. BNG-HSP's existing block is preserved byte-for-byte; this
- * script only ever replaces the entries for the seven new corridor ids.
+ * topology. BNG-HSP's existing block is preserved rather than replaced -
+ * its topology stays the hand-authored one with the meal halt, the crew
+ * change and the three dead zones, none of which Tatak's own plainer stop
+ * list carries - but it is no longer byte-for-byte untouched: `withBngHsp
+ * Additions` below tops it up with whatever real BNG-HSP service numbers
+ * Tatak's `KA-BNG-HMP` feed carries that the hand-authored block does not
+ * already have a serviceId for. See that function's own comment for why an
+ * addition rather than a replacement.
  *
  * For every corridor and its chosen physical direction (see
  * `NEW_CORRIDORS`'s own comment on why some are reversed from what the id's
@@ -11,16 +17,20 @@
  *
  *   - its Tatak `direction_id` matches the corridor's chosen direction,
  *   - it carries a real (non-null) `tatak_service_number`,
- *   - that number is not one of the four Tatak assigns to two different
- *     corridors at once (`AMBIGUOUS_SERVICE_NUMBERS` - both occurrences are
- *     dropped, since Tatak's data does not say which corridor is real),
+ *   - that number is not one of the three Tatak assigns to two different
+ *     corridors at once with no way to tell which is real
+ *     (`AMBIGUOUS_SERVICE_NUMBERS` - both occurrences are dropped), and is
+ *     not exclusively reserved for a different corridor than this one
+ *     (`CORRIDOR_EXCLUSIVE_SERVICE_NUMBERS` - a real through-service Tatak
+ *     legitimately sights on more than one feed, kept on the one it
+ *     physically belongs to and skipped on every other),
  *   - its class maps to a `ServiceClassId` this simulator actually has
  *     (`CLASS_MAP`) - `karnataka_sarige` included, since this simulator
  *     tracks the unreserved class even though ondc-transit-bpp will not
  *     sell a seat on it.
  *
- * DND-ANK has zero real service numbers in Tatak's data in either
- * direction - its own three generated Dandeli-to-Ankola departures are
+ * DND-ANK and BNG-BDM both have zero usable real service numbers in Tatak's
+ * data for their chosen direction - their own generated departures are
  * rostered instead, `confidence: "invented"`, following the exact
  * convention BNG-HSP's own invented rows already use (serviceId shaped
  * like `<HHMM><ORIGIN><DEST>`) rather than pretending a generated trip has
@@ -31,7 +41,13 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { fixtureHub } from '../src/fleet/corporation.js'
 import type { RosterCorridor, RosterDeparture } from '../src/sim/corridorRoster.js'
-import { AMBIGUOUS_SERVICE_NUMBERS, CLASS_MAP, NEW_CORRIDORS, type NewCorridorDef } from './lib/newCorridors.js'
+import {
+  AMBIGUOUS_SERVICE_NUMBERS,
+  CLASS_MAP,
+  CORRIDOR_EXCLUSIVE_SERVICE_NUMBERS,
+  NEW_CORRIDORS,
+  type NewCorridorDef,
+} from './lib/newCorridors.js'
 import { loadTatakCorridor, type TatakCorridorSource, type TatakTrip } from './lib/tatakSource.js'
 
 function departureTimeOf(source: TatakCorridorSource, trip: TatakTrip): string {
@@ -55,6 +71,7 @@ function buildCorridorRoster(def: NewCorridorDef, source: TatakCorridorSource): 
       trip.directionId === def.tatakDirectionId &&
       trip.serviceNumber !== null &&
       !AMBIGUOUS_SERVICE_NUMBERS.has(trip.serviceNumber) &&
+      (CORRIDOR_EXCLUSIVE_SERVICE_NUMBERS[trip.serviceNumber] ?? def.id) === def.id &&
       CLASS_MAP[source.routes.get(trip.routeId)?.serviceClass ?? ''] !== undefined,
   )
 
@@ -74,10 +91,11 @@ function buildCorridorRoster(def: NewCorridorDef, source: TatakCorridorSource): 
   })
 
   if (departures.length === 0) {
-    // DND-ANK: no real service number anywhere in Tatak's data for this
-    // corridor. Roster its own generated departures instead, invented and
-    // labelled as such - the exact convention BNG-HSP's own invented rows
-    // already use - so the corridor still has a coach to track.
+    // DND-ANK and BNG-BDM: no usable real service number anywhere in
+    // Tatak's data for this corridor's chosen direction. Roster its own
+    // generated departures instead, invented and labelled as such - the
+    // exact convention BNG-HSP's own invented rows already use - so the
+    // corridor still has a coach to track.
     const generated = source.trips.filter(
       (trip) => trip.directionId === def.tatakDirectionId && CLASS_MAP[source.routes.get(trip.routeId)?.serviceClass ?? ''] !== undefined,
     )
@@ -103,6 +121,61 @@ function buildCorridorRoster(def: NewCorridorDef, source: TatakCorridorSource): 
   return { corridorId: def.id, departures }
 }
 
+/**
+ * BNG-HSP is not one of `NEW_CORRIDORS`: its topology is the hand-authored
+ * nine-stand fixture with the meal halt, the crew change and the three
+ * dead zones (`buildBngHsp` in `build-corridors.ts`), not Tatak's plainer
+ * `KA-BNG-HMP` stop list, and rebuilding it from Tatak the way the other
+ * ten corridors are built would throw all three away for no gain - the
+ * roster's serviceId does not need the topology to match the source it
+ * came from.
+ *
+ * So this corridor's roster is topped up rather than rebuilt: everything
+ * already in the bundle (the three invented departures and the one
+ * sourced `2259BNGHMP`) is kept exactly as it is, and every dir0
+ * KARNATAKA_SARIGE, RAJAHAMSA_EXECUTIVE, AIRAVAT, AIRAVAT_CLUB_CLASS,
+ * AMBAARI_UTSAV or PALLAKKI real service number `KA-BNG-HMP` carries that
+ * this block does not already have a serviceId for is added beside it,
+ * `confidence: "secondary_unverified"` like every other Tatak-sourced
+ * departure this project rosters. `AC_SEATER_EXECUTIVE_CHAIR` and
+ * `NON_AC_SLEEPER` real numbers on this corridor (0545BNGHSP, 1535BNGHSP,
+ * 2314BNGHSP) are skipped by the same `CLASS_MAP` gap every other corridor
+ * here has - this simulator has no fleet class for either.
+ */
+function withBngHspAdditions(preservedBngHsp: RosterCorridor, source: TatakCorridorSource): RosterCorridor {
+  const corporation = corporationFor('KBS')
+  const already = new Set(preservedBngHsp.departures.map((departure) => departure.serviceId))
+  const additions = source.trips.filter(
+    (trip) =>
+      trip.directionId === 0 &&
+      trip.serviceNumber !== null &&
+      !already.has(trip.serviceNumber) &&
+      CLASS_MAP[source.routes.get(trip.routeId)?.serviceClass ?? ''] !== undefined,
+  )
+  const newDepartures: RosterDeparture[] = additions.map((trip) => {
+    const serviceClass = CLASS_MAP[source.routes.get(trip.routeId)!.serviceClass]!
+    // "Hosapete Bus Stand" / "Hampi Bus Stand" -> "Hosapete" / "Hampi",
+    // matching the one-word headsigns this corridor's own preserved rows
+    // already use rather than introducing a second style.
+    const headsign = trip.headsign.replace(/ Bus Stand$/, '')
+    return {
+      serviceId: trip.serviceNumber!,
+      number: trip.serviceNumber!,
+      headsign,
+      departureTime: departureTimeOf(source, trip),
+      serviceClass,
+      hub: 'KBS',
+      corporation,
+      confidence: 'secondary_unverified',
+      note: `scripts/build-corridor-roster.ts, from Tatak KA-BNG-HMP (data/intercity/ka-bng-hmp/trips.txt, trip ${trip.tripId}), added to BNG-HSP's existing roster rather than replacing it - see withBngHspAdditions. Tatak's own provenance for this service number is "${trip.provenance}", not primary-confirmed.`,
+    }
+  })
+  const departures = [...preservedBngHsp.departures, ...newDepartures].sort((a, b) =>
+    a.departureTime.localeCompare(b.departureTime),
+  )
+  return { corridorId: 'BNG-HSP', departures }
+}
+
 const rosterPath = new URL('../data/bundle/corridor-roster.json', import.meta.url)
 const existing = JSON.parse(await readFile(rosterPath, 'utf8')) as {
   note: string
@@ -111,7 +184,13 @@ const existing = JSON.parse(await readFile(rosterPath, 'utf8')) as {
 }
 
 const newIds = new Set(NEW_CORRIDORS.map((def) => def.id))
-const preserved = existing.corridors.filter((corridor) => !newIds.has(corridor.corridorId))
+const preserved = existing.corridors.filter((corridor) => !newIds.has(corridor.corridorId) && corridor.corridorId !== 'BNG-HSP')
+
+const existingBngHsp = existing.corridors.find((corridor) => corridor.corridorId === 'BNG-HSP')
+if (existingBngHsp === undefined) throw new Error('data/bundle/corridor-roster.json has no BNG-HSP block to top up')
+const bngHspSource = await loadTatakCorridor('ka-bng-hmp')
+const bngHsp = withBngHspAdditions(existingBngHsp, bngHspSource)
+const bngHspAdded = bngHsp.departures.length - existingBngHsp.departures.length
 
 const generated: RosterCorridor[] = []
 const summary: { id: string; real: number; invented: number; classesDropped: string[] }[] = []
@@ -127,8 +206,8 @@ for (const def of NEW_CORRIDORS) {
 
 const output = {
   ...existing,
-  corridors: [...preserved, ...generated],
+  corridors: [...preserved, bngHsp, ...generated],
 }
 
 await writeFile(rosterPath, `${JSON.stringify(output, null, 2)}\n`)
-console.log(JSON.stringify({ output: rosterPath.pathname, summary }, null, 2))
+console.log(JSON.stringify({ output: rosterPath.pathname, bngHspAdded, summary }, null, 2))

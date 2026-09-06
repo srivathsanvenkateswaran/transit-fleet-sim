@@ -9,6 +9,17 @@
       "corridorId": "BNG-HSP",
       "departures": [
         {
+          "serviceId": "0930BNGHSP",
+          "number": "0930BNGHSP",
+          "headsign": "Hosapete",
+          "departureTime": "09:30",
+          "serviceClass": "karnataka_sarige",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HMP (data/intercity/ka-bng-hmp/trips.txt, trip KA-BNG-HMP-OP-0930BNGHSP), added to BNG-HSP's existing roster rather than replacing it - see withBngHspAdditions. Tatak's own provenance for this service number is \"inferred\", not primary-confirmed."
+        },
+        {
           "serviceId": "1030BNGHMP",
           "number": "1030BNGHMP",
           "headsign": "Hampi",
@@ -20,6 +31,17 @@
           "note": "The unreserved counter-example (§13.1, §15 criterion 92): walk-up, standing-room-permitted, nobody counts, so the demand model applies and §7's refusal does not."
         },
         {
+          "serviceId": "1630BNGKPL",
+          "number": "1630BNGKPL",
+          "headsign": "Hosapete",
+          "departureTime": "16:30",
+          "serviceClass": "karnataka_sarige",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HMP (data/intercity/ka-bng-hmp/trips.txt, trip KA-BNG-HMP-KSG-0830), added to BNG-HSP's existing roster rather than replacing it - see withBngHspAdditions. Tatak's own provenance for this service number is \"inferred\", not primary-confirmed."
+        },
+        {
           "serviceId": "2115BNGHMP",
           "number": "2115BNGHMP",
           "headsign": "Hampi",
@@ -29,6 +51,17 @@
           "corporation": "KSRTC",
           "confidence": "invented",
           "note": "A second reserved class on the same corridor, so the class-conditional coverage rule has something to bite on."
+        },
+        {
+          "serviceId": "2130BNGHSP",
+          "number": "2130BNGHSP",
+          "headsign": "Hosapete",
+          "departureTime": "21:30",
+          "serviceClass": "karnataka_sarige",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HMP (data/intercity/ka-bng-hmp/trips.txt, trip KA-BNG-HMP-OP-2130BNGHSP), added to BNG-HSP's existing roster rather than replacing it - see withBngHspAdditions. Tatak's own provenance for this service number is \"inferred\", not primary-confirmed."
         },
         {
           "serviceId": "2259BNGHMP",
@@ -144,6 +177,17 @@
       "corridorId": "BNG-MNG",
       "departures": [
         {
+          "serviceId": "0605BNGMNG",
+          "number": "0605BNGMNG",
+          "headsign": "Mangaluru KSRTC Bus Stand (Bejai)",
+          "departureTime": "06:05",
+          "serviceClass": "airavat_club_class",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-MNG (data/intercity/ka-bng-mng/trips.txt, trip KA-BNG-MNG-OP-0605BNGMNG). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
           "serviceId": "0700BNGMNG",
           "number": "0700BNGMNG",
           "headsign": "Mangaluru KSRTC Bus Stand (Bejai)",
@@ -230,6 +274,17 @@
           "corporation": "KSRTC",
           "confidence": "secondary_unverified",
           "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-MNG (data/intercity/ka-bng-mng/trips.txt, trip KA-BNG-MNG-OP-1003BNGMNG). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "1004BNGMNG",
+          "number": "1004BNGMNG",
+          "headsign": "Mangaluru KSRTC Bus Stand (Bejai)",
+          "departureTime": "10:04",
+          "serviceClass": "airavat_club_class",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-MNG (data/intercity/ka-bng-mng/trips.txt, trip KA-BNG-MNG-OP-1004BNGMNG). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
         },
         {
           "serviceId": "1016BNGMNG",
@@ -428,6 +483,17 @@
           "corporation": "KSRTC",
           "confidence": "secondary_unverified",
           "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-MNG (data/intercity/ka-bng-mng/trips.txt, trip KA-BNG-MNG-OP-2201BNGMNG). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "2210BNGMNG",
+          "number": "2210BNGMNG",
+          "headsign": "Mangaluru KSRTC Bus Stand (Bejai)",
+          "departureTime": "22:10",
+          "serviceClass": "airavat_club_class",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-MNG (data/intercity/ka-bng-mng/trips.txt, trip KA-BNG-MNG-OP-2210BNGMNG). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
         },
         {
           "serviceId": "2224BNGMNG",
@@ -723,6 +789,17 @@
           "corporation": "KSRTC",
           "confidence": "secondary_unverified",
           "note": "scripts/build-corridor-roster.ts, from Tatak KA-COAST (data/intercity/ka-coast/trips.txt, trip KA-COAST-N-RJH-1600-NOR). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "0801BNGCDP",
+          "number": "0801BNGCDP",
+          "headsign": "Udupi Service Bus Station",
+          "departureTime": "17:01",
+          "serviceClass": "karnataka_sarige",
+          "hub": "MNG",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-COAST (data/intercity/ka-coast/trips.txt, trip KA-COAST-N-KSG-0730-UDP). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
         }
       ]
     },
@@ -761,6 +838,125 @@
           "corporation": "NWKRTC",
           "confidence": "invented",
           "note": "scripts/build-corridor-roster.ts. Tatak (data/intercity/ka-dnd-ank/trips.txt, trip KA-DND-ANK-KSG-1530) carries no real service number for this corridor in either direction, so this id is fabricated in the same shape BNG-HSP's own invented rows use (<HHMM><ORIGIN><DEST>), not a claim about a real KSRTC working."
+        }
+      ]
+    },
+    {
+      "corridorId": "BNG-BJP",
+      "departures": [
+        {
+          "serviceId": "2005BNGBJP",
+          "number": "2005BNGBJP",
+          "headsign": "Vijayapura Central Bus Station",
+          "departureTime": "20:05",
+          "serviceClass": "karnataka_sarige",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-BJP (data/intercity/ka-bng-bjp/trips.txt, trip KA-BNG-BJP-OP-2005BNGBJP). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        }
+      ]
+    },
+    {
+      "corridorId": "BNG-BDM",
+      "departures": [
+        {
+          "serviceId": "2000BNGBDM",
+          "number": "2000BNGBDM",
+          "headsign": "Badami Bus Station",
+          "departureTime": "20:00",
+          "serviceClass": "karnataka_sarige",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "invented",
+          "note": "scripts/build-corridor-roster.ts. Tatak (data/intercity/ka-bng-bdm/trips.txt, trip KA-BNG-BDM-KSG-2000) carries no real service number for this corridor in either direction, so this id is fabricated in the same shape BNG-HSP's own invented rows use (<HHMM><ORIGIN><DEST>), not a claim about a real KSRTC working."
+        }
+      ]
+    },
+    {
+      "corridorId": "BNG-BGK",
+      "departures": [
+        {
+          "serviceId": "1930BNGBLI",
+          "number": "1930BNGBLI",
+          "headsign": "Bagalkot Bus Station",
+          "departureTime": "19:30",
+          "serviceClass": "karnataka_sarige",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-BGK (data/intercity/ka-bng-bgk/trips.txt, trip KA-BNG-BGK-OP-1930BNGBLI). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "2100BNGBLI",
+          "number": "2100BNGBLI",
+          "headsign": "Bagalkot Bus Station",
+          "departureTime": "21:00",
+          "serviceClass": "pallakki",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-BGK (data/intercity/ka-bng-bgk/trips.txt, trip KA-BNG-BGK-OP-2100BNGBLI). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        }
+      ]
+    },
+    {
+      "corridorId": "BNG-HBL",
+      "departures": [
+        {
+          "serviceId": "0830BNGHBL",
+          "number": "0830BNGHBL",
+          "headsign": "Hubballi New Bus Station",
+          "departureTime": "08:30",
+          "serviceClass": "airavat_club_class",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HBL (data/intercity/ka-bng-hbl/trips.txt, trip KA-BNG-HBL-OP-0830BNGHBL). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "1500BNGHBL",
+          "number": "1500BNGHBL",
+          "headsign": "Hubballi New Bus Station",
+          "departureTime": "15:00",
+          "serviceClass": "airavat_club_class",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HBL (data/intercity/ka-bng-hbl/trips.txt, trip KA-BNG-HBL-OP-1500BNGHBL). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "2231BNGHBL",
+          "number": "2231BNGHBL",
+          "headsign": "Hubballi New Bus Station",
+          "departureTime": "22:31",
+          "serviceClass": "pallakki",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HBL (data/intercity/ka-bng-hbl/trips.txt, trip KA-BNG-HBL-OP-2231BNGHBL). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "2245BNGHBL",
+          "number": "2245BNGHBL",
+          "headsign": "Hubballi New Bus Station",
+          "departureTime": "22:45",
+          "serviceClass": "airavat_club_class",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HBL (data/intercity/ka-bng-hbl/trips.txt, trip KA-BNG-HBL-OP-2245BNGHBL). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
+        },
+        {
+          "serviceId": "2320BNGHBL",
+          "number": "2320BNGHBL",
+          "headsign": "Hubballi New Bus Station",
+          "departureTime": "23:20",
+          "serviceClass": "airavat_club_class",
+          "hub": "KBS",
+          "corporation": "KSRTC",
+          "confidence": "secondary_unverified",
+          "note": "scripts/build-corridor-roster.ts, from Tatak KA-BNG-HBL (data/intercity/ka-bng-hbl/trips.txt, trip KA-BNG-HBL-OP-2320BNGHBL). Tatak's own provenance for this service number is \"inferred\", not primary-confirmed - see that repository's src/intercity/corridors/*.ts for the underlying source."
         }
       ]
     }

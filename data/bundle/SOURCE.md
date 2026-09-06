@@ -147,6 +147,9 @@ exactly the kind of number a screenshot turns into a fact.
 | `1030BNGHMP` | 10:30 | Karnataka Sarige | `invented` | Invented outright. It exists as the unreserved counter-example §13.1 asks for: walk-up, nobody counts, so the demand model applies and §7's refusal does not. |
 | `2115BNGHMP` | 21:15 | Airavat | `invented` | Invented outright. A second reserved class on the same corridor, so the class-conditional coverage rule has something to bite on. |
 | `0030BNGHMP` | `24:30` | Rajahamsa Executive | `invented` | Invented outright, and written as the GTFS time it is rather than as `00:30`: a departure time here is measured from its own service date's local midnight and may exceed 24 hours (§3.3). Runs on Friday and Saturday **service dates** only. It exists so two things have a real duty to fire on - the travel-date/service-date trap (§7.4, criterion 91) and `duty_not_scheduled` (§10.3), which would otherwise be an error string in the taxonomy with no reachable producer. |
+| `0930BNGHSP` | 09:30 | Karnataka Sarige | `secondary_unverified` **[S]** | Real Tatak service number, `KA-BNG-HMP` feed (`data/intercity/ka-bng-hmp/trips.txt`), added by `withBngHspAdditions` in `scripts/build-corridor-roster.ts` once the owner's own tracking audit showed this exact code being offered to a rider with nothing behind it. |
+| `1630BNGKPL` | 16:30 | Karnataka Sarige | `secondary_unverified` **[S]** | Same source and reason as `0930BNGHSP`. `KPL` (Koppal) is the code's own destination letters, a town past this corridor's own Hosapete terminus - carried as an ordinary BNG-HSP departure anyway, the same way Tatak itself treats a through-service sighted at one of its stands. |
+| `2130BNGHSP` | 21:30 | Karnataka Sarige | `secondary_unverified` **[S]** | Same source and reason as `0930BNGHSP`. |
 
 **The arrival times are not authored at all.** Each duty's scheduled call at
 every stand is derived from the committed corridor geometry and the configured
@@ -162,13 +165,14 @@ geometry is the measured thing and the reported duration is the secondary one;
 this pipeline does not adjust real routed geometry to match an unverified
 timetable.
 
-# The seven corridors added after BNG-HSP
+# The eleven corridors added after BNG-HSP
 
 `corridor-topology.json`'s `BNG-MYS`, `BNG-MNG`, `BNG-CKM`, `MYS-MDK`,
-`MYS-MNG`, `MNG-KWR` and `DND-ANK` entries, and their entries in
-`corridor-roster.json`, are generated - not hand-authored the way BNG-HSP's
-`STANDS` list and roster rows are. Regenerate both from a sibling Tatak
-checkout (`TATAK_REPO_PATH`, defaulting to `../Tatak`) with:
+`MYS-MNG`, `MNG-KWR`, `DND-ANK`, `BNG-BJP`, `BNG-BDM`, `BNG-BGK` and
+`BNG-HBL` entries, and their entries in `corridor-roster.json`, are
+generated - not hand-authored the way BNG-HSP's `STANDS` list and roster
+rows are. Regenerate both from a sibling Tatak checkout (`TATAK_REPO_PATH`,
+defaulting to `../Tatak`) with:
 
 ```
 npx tsx scripts/build-corridors.ts        # topology - set CORRIDOR_OSRM_LIVE=true to refresh routing
@@ -176,16 +180,45 @@ npx tsx scripts/build-corridor-roster.ts  # roster
 npm run check-corridor-topology
 ```
 
+The last four of these (`BNG-BJP`, `BNG-BDM`, `BNG-BGK`, `BNG-HBL`) were
+added when Tatak gained Vijayapura, Badami, Bagalkot and Hubballi and the
+owner's own tracking audit (planning eleven destinations from Kundalahalli
+Gate against Tatak's planner, then calling this simulator's `/fleet/duty`
+for every intercity leg) found only 28 of 71 coach legs resolving to a real
+vehicle - the rest were services Tatak now offers that this simulator had
+never rostered. The same audit found `BNG-HSP` and `BNG-MNG`, both already
+built, missing real service numbers Tatak's own feeds had since gained
+(`0930BNGHSP`, `1630BNGKPL`, `2130BNGHSP` on `KA-BNG-HMP`; `1004BNGMNG` on
+`KA-BNG-MNG`, whose `AIRAVAT_CLUB_CLASS_2` now maps onto this project's
+existing `airavat_club_class` row rather than being dropped) and one real
+number, `0801BNGCDP`, wrongly dropped as cross-corridor-ambiguous when it is
+in fact a legitimate through-service Tatak sights on more than one feed by
+design - see `src/intercity/sourced.ts` in the Tatak checkout, and
+`CORRIDOR_EXCLUSIVE_SERVICE_NUMBERS` in `scripts/lib/newCorridors.ts` for
+how this project now resolves that instead of dropping it from every
+corridor. Regenerating after that pass raised the count to 66 of 71; the
+three still missing (`0930BNGMRC`, `2130BJPBNG`, `1115BNGHSD`) are real
+Tatak service numbers sighted only on generic highway feeds (`KA-GEN-NH275`,
+`KA-GEN-NH50`, `KA-GEN-NH48`) this project has never modelled as their own
+town-pair corridors, or that run the direction opposite the one this
+project's single-direction roster mechanism carries for that corridor -
+left as a named gap rather than forced onto geometry that would make the
+tracked coach appear to run backwards.
+
 Both scripts, and the corridor/class/hub tables they share, live in
 `scripts/build-corridors.ts`, `scripts/build-corridor-roster.ts` and
 `scripts/lib/`. `scripts/lib/newCorridors.ts` documents, per corridor: which
 physical direction is modelled (this roster has one fixed stand order per
 corridor, so a corridor whose only real service numbers run one way is
 built in that direction even where it reads against the corridor id's own
-letters - MYS-MDK and MYS-MNG both do this), which Tatak classes have no
-match in `corridor-classes.json` and are dropped, and the four real service
-numbers Tatak's own dataset assigns to a trip on two different corridors at
-once (dropped from both rather than guessed at).
+letters - MYS-MDK and MYS-MNG both do this, and BNG-BDM does too, on zero
+usable real numbers in its own direction rather than real numbers this
+project never shows a rider), which Tatak classes have no match in
+`corridor-classes.json` and are dropped, and the three real service numbers
+Tatak's own dataset assigns to a trip on two different corridors with no way
+to tell which is real (dropped from both rather than guessed at) as against
+the ones it assigns to more than one feed by design (kept on the one
+corridor they physically belong to).
 
 Every stand's coordinates, name and order come straight from Tatak's
 generated GTFS (`data/intercity/<dir>/stops.txt`, `stop_times.txt`) -
@@ -193,12 +226,12 @@ generated GTFS (`data/intercity/<dir>/stops.txt`, `stop_times.txt`) -
 BNG-HSP's hand-picked stands. The three-letter stand-code labels
 (`KA-STAND-<code>-01`) are this project's own invention, not a Tatak or
 KSRTC field - see the table in `scripts/lib/newCorridors.ts`. `deadZones` is
-empty on all seven: nothing in Tatak's data gives a documented basis for one,
-and an invented zone would be a worse gap than none. `DND-ANK` is the one
-corridor with zero real service numbers in Tatak's data in either direction;
-its three roster departures are that corridor's own generated trips,
-rostered `confidence: "invented"`, the same convention BNG-HSP's own
-invented rows already use.
+empty on all eleven: nothing in Tatak's data gives a documented basis for
+one, and an invented zone would be a worse gap than none. `DND-ANK` and
+`BNG-BDM` are the two corridors with zero usable real service numbers in
+Tatak's data for their chosen direction; their roster departures are that
+corridor's own generated trips, rostered `confidence: "invented"`, the same
+convention BNG-HSP's own invented rows already use.
 
 `DND-ANK`'s routed geometry comes back with a real 1.79 detour ratio against
 the straight-line distance between Dandeli and Ankola (Dandeli sits inside

@@ -33,12 +33,15 @@
  * **Scope.** Originally one corridor - Bengaluru to Hosapete
  * (`buildBngHsp`, an authored stand list) - because that was what the
  * sibling projects were building against. `buildFromTatak` (below) adds
- * seven more, read from the Tatak repository's own generated GTFS instead
+ * eleven more, read from the Tatak repository's own generated GTFS instead
  * of an authored list - see `scripts/lib/newCorridors.ts` and
- * `scripts/lib/tatakSource.ts`. `PVG-BNG`, the one corridor OSM has
- * actually mapped (relation 15728171), is still not built by this pass,
- * which is why `check-corridor-topology.ts` documents its check 7 as a
- * no-op until it is.
+ * `scripts/lib/tatakSource.ts`. The last four of those eleven (BNG-BJP,
+ * BNG-BDM, BNG-BGK, BNG-HBL) were added once Tatak's own planner started
+ * offering coaches on corridors this simulator had never heard of - see
+ * `NEW_CORRIDORS`'s own comment for the direction reasoning on each.
+ * `PVG-BNG`, the one corridor OSM has actually mapped (relation 15728171),
+ * is still not built by this pass, which is why `check-corridor-
+ * topology.ts` documents its check 7 as a no-op until it is.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import type { Corporation } from '../src/fleet/corporation.js'

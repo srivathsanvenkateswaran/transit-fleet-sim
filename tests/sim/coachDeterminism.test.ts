@@ -74,11 +74,25 @@ describe('determinism and the progress log (§8.3, §15)', () => {
     })
     const duty = pallakkiDuty(simulation, '20260905')
     const bin = binFor(simulation, duty.id)
-    const log = simulation.observe(bin, new Date(duty.departureAt.getTime() + 400 * 60_000))!.duty
-      .progressLog!
+    const at = new Date(duty.departureAt.getTime() + 400 * 60_000)
+    const log = simulation.observe(bin, at)!.duty.progressLog!
     expect(log.length).toBe(4)
-    // The first entry is no longer the departure: the oldest went first.
-    expect(log[0]!.event).not.toBe('departed')
+
+    // Proving the cap dropped the OLDEST entries takes a reference: BNG-HSP
+    // logs a `departed` event at every stand a coach leaves (Nelamangala,
+    // Tumakuru, Chitradurga, Davanagere...), not only at the origin, so
+    // `log[0]!.event !== 'departed'` does not actually distinguish "the
+    // origin departure was dropped" from "the coach happens to be between
+    // two halts right now" - it used to pass by coincidence of which bin
+    // this duty drew, and BNG-HSP rostering three more real departures
+    // (§7.4) changed the generation order enough to draw a different one.
+    // The uncapped log (default `progressLogMaxEntries`, comfortably above
+    // this run's eleven natural entries) is the actual oldest-first proof:
+    // the capped log must be exactly its last four entries.
+    const uncapped = await coachHarness(BOOT_AT, { device: FULL_COVERAGE })
+    const fullLog = uncapped.simulation.observe(bin, at)!.duty.progressLog!
+    expect(fullLog.length).toBeGreaterThan(4)
+    expect(log).toEqual(fullLog.slice(-4))
   })
 
   it('criterion 104: two fresh simulations with the same seed produce byte-identical /fleet/corridors and identical assignments', async () => {

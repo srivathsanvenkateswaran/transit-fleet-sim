@@ -371,7 +371,11 @@ describe('the intercity HTTP surface (§10)', () => {
     const body = await json(await fetch(`${baseUrl}/readyz`))
     expect(body.status).toBe('ready')
     expect(body.corridors).toBe(1)
-    expect(body.coachesRostered).toBe(10)
+    // BNG-HSP's six daily departures (see tests/sim/corridorRoster.test.ts)
+    // over this harness's three-day window, plus the weekend relief on
+    // whichever one of the two days it runs falls inside that window at
+    // this NOW: 6*3 + 1.
+    expect(body.coachesRostered).toBe(19)
     expect(body.coachesActive).toBe(simulation.activeCount(NOW))
     expect(body.rosterWindow).toEqual({
       from: simulation.rosterWindow.from,
