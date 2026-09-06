@@ -135,7 +135,6 @@ describe('the intercity device and dead-zone model (§6)', () => {
         urbanDropoutMaxSeconds: 1_800,
       },
     })
-    const corridor = simulation.runSnapshot(pallakkiDuty(simulation), BOOT_AT).corridor
     let insideNamed = 0
     let outsideNull = 0
     const causesOutside = new Set<string>()
@@ -143,7 +142,12 @@ describe('the intercity device and dead-zone model (§6)', () => {
       for (const frame of runMinutes(simulation, duty.id, 600)) {
         const tracking = frame.observation.tracking
         const snapshot = simulation.runSnapshot(duty, frame.at)
-        const inside = deadZoneAt(snapshot.cursor.distanceMetres, corridor.deadZones) !== null
+        // Each duty's own snapshot corridor, not one fixed reference corridor:
+        // a `reverse` duty (§ bidirectional rosters) runs `reverseCorridor`'s
+        // mirrored geometry, whose dead zones sit at different distances than
+        // the forward corridor's - checking a reverse duty's cursor against
+        // the forward corridor's zones would compare two different roads.
+        const inside = deadZoneAt(snapshot.cursor.distanceMetres, snapshot.corridor.deadZones) !== null
         if (tracking.state !== 'dark') continue
         if (inside) {
           expect(tracking.deadZone).not.toBeNull()
@@ -207,12 +211,13 @@ describe('the intercity device and dead-zone model (§6)', () => {
     const { simulation } = await coachHarness(BOOT_AT, {
       device: { ...defaultCoachProfiles.device, coverageShareReserved: 1, coverageShareOrdinary: 1 },
     })
-    const corridor = simulation.runSnapshot(pallakkiDuty(simulation), BOOT_AT).corridor
     for (const duty of simulation.duties) {
       for (const frame of runMinutes(simulation, duty.id, 600, 2)) {
         if (frame.observation.tracking.state !== 'dark') continue
         const snapshot = simulation.runSnapshot(duty, frame.at)
-        expect(deadZoneAt(snapshot.cursor.distanceMetres, corridor.deadZones)).not.toBeNull()
+        // Each duty's own snapshot corridor - see the identical note on
+        // criterion 75 above.
+        expect(deadZoneAt(snapshot.cursor.distanceMetres, snapshot.corridor.deadZones)).not.toBeNull()
       }
     }
   })

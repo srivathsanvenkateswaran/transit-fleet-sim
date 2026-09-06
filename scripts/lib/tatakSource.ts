@@ -1,8 +1,11 @@
 /**
- * Reads Tatak's generated intercity GTFS (`data/intercity/<dir>/*.txt`) from
- * the sibling Tatak checkout. Shared by `build-corridors.ts` (topology) and
- * `build-corridor-roster.ts` (roster), so both scripts read the exact same
- * source rows for a given corridor.
+ * Reads Tatak's GTFS from the sibling Tatak checkout - both the generated
+ * intercity feed (`data/intercity/<dir>/*.txt`) and, since the September
+ * 2026 city-bus coverage expansion, Tatak's own copy of the full BMTC feed
+ * at `data/gtfs/*.txt`. Shared by `build-corridors.ts` (topology),
+ * `build-corridor-roster.ts` (roster) and `build-bundle.ts` (the city bus
+ * route selection), so every script reads the exact same source rows rather
+ * than each hand-copying its own snapshot of Tatak's data.
  *
  * Tatak's own `data/` tree is documented there as regenerable output ("npm
  * run build-intercity"), not a hand source - see that repo's
@@ -11,12 +14,28 @@
  * disk, which may be stale. `TATAK_REPO_PATH` overrides the sibling path
  * the same way `FLEET_SIM_REPO` does in ondc-transit-bpp's own test harness.
  */
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { parse } from 'csv-parse/sync'
 
 export function tatakRepoPath(): string {
   return process.env.TATAK_REPO_PATH?.trim() || resolve(import.meta.dirname, '../../../Tatak')
+}
+
+/**
+ * Tatak's full, unfiltered BMTC city GTFS directory - the source of truth
+ * this project's own `data/bundle/gtfs` is a route-filtered cache of.
+ * `Vonter/bmtc-gtfs` commit `9b10e7bacbd5f81b5df9b2dd5de7b9d9d8b4d52c`, feed
+ * version `20260712`, matching `data/bundle/SOURCE.md`'s own citation - both
+ * projects' copies came from the same upstream fetch, so route ids and stop
+ * ids agree between them with no remapping needed. `null` when the sibling
+ * checkout (or this directory inside it) is not present, so a caller can
+ * fall back to fetching the upstream feed directly instead of failing.
+ */
+export function tatakCityGtfsPath(): string | null {
+  const directory = resolve(tatakRepoPath(), 'data/gtfs')
+  return existsSync(resolve(directory, 'routes.txt')) ? directory : null
 }
 
 async function readCsv(path: string): Promise<Record<string, string>[]> {

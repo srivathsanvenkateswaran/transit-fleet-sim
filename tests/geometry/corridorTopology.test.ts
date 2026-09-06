@@ -4,6 +4,7 @@ import {
   DEFAULT_CORRIDOR_LIMITS,
   buildCorridorTrack,
   loadCorridorTopology,
+  reverseCorridor,
   validateCorridorTopology,
   type Corridor,
   type CorridorTopology,
@@ -152,5 +153,87 @@ describe('the corridor integrity gate (§9.4)', () => {
       deadZones: [{ fromMetres: 20_000, toMetres: 30_000, reason: 'no_cellular_coverage' }],
     })
     expect(() => validateCorridorTopology(topologyOf(corridor))).not.toThrow()
+  })
+})
+
+/**
+ * The bidirectional-roster fix (docs/intercity-coaches.md's "single-direction
+ * roster mechanism" gap): a real Tatak service running the opposite way over
+ * a corridor this project already models is not a second corridor, it is the
+ * same asphalt travelled the other direction. `reverseCorridor` mirrors the
+ * committed track rather than fetching a second OSRM fixture, and it has to
+ * come out a corridor `validateCorridorTopology` would accept on its own -
+ * this is what §9.4's checks would run against the real bundled reversal.
+ */
+describe('reverseCorridor (bidirectional rosters)', () => {
+  it('produces a corridor that passes every integrity check the forward one does', () => {
+    const corridor = baseCorridor({
+      deadZones: [{ fromMetres: 20_000, toMetres: 30_000, reason: 'no_cellular_coverage' }],
+    })
+    const reversed = reverseCorridor(corridor)
+    expect(() => validateCorridorTopology(topologyOf(reversed))).not.toThrow()
+  })
+
+  it('swaps boarding and terminal at the ends and preserves the id, name and length', () => {
+    const corridor = baseCorridor()
+    const reversed = reverseCorridor(corridor)
+    expect(reversed.id).toBe(corridor.id)
+    expect(reversed.name).toBe(corridor.name)
+    expect(reversed.lengthMetres).toBeCloseTo(corridor.lengthMetres, 0)
+    expect(reversed.stands[0]?.id).toBe(corridor.stands.at(-1)!.id)
+    expect(reversed.stands[0]?.kind).toBe('boarding')
+    expect(reversed.stands.at(-1)?.id).toBe(corridor.stands[0]!.id)
+    expect(reversed.stands.at(-1)?.kind).toBe('terminal')
+  })
+
+  it('keeps an interior stand’s own kind (a meal halt reversed is still a meal halt)', () => {
+    const points = [
+      { lat: 13.0, lon: 77.5 },
+      { lat: 13.2, lon: 77.3 },
+      { lat: 13.4, lon: 77.1 },
+      { lat: 13.6, lon: 76.9 },
+    ]
+    const track = straightTrack(points)
+    const middle = points[1]!
+    const corridor: Corridor = {
+      ...baseCorridor(),
+      stands: [
+        { id: 'A', name: 'A', nameLocal: null, lat: points[0]!.lat, lon: points[0]!.lon, kind: 'boarding', distanceMetres: 0, provenance: 'authored_secondary' },
+        { id: 'M', name: 'M', nameLocal: null, lat: middle.lat, lon: middle.lon, kind: 'meal_halt', distanceMetres: Math.round(track.lengthMetres / 3), provenance: 'authored_secondary' },
+        { id: 'B', name: 'B', nameLocal: null, lat: points[3]!.lat, lon: points[3]!.lon, kind: 'terminal', distanceMetres: track.lengthMetres, provenance: 'authored_secondary' },
+      ],
+      segments: [
+        { fromStandId: 'A', toStandId: 'M', kind: 'highway', geometry: 'routed', distanceMetres: track.lengthMetres / 3, points: points.slice(0, 2) },
+        { fromStandId: 'M', toStandId: 'B', kind: 'highway', geometry: 'routed', distanceMetres: (track.lengthMetres * 2) / 3, points: points.slice(1) },
+      ],
+      track,
+    }
+    const reversed = reverseCorridor(corridor)
+    const reversedMeal = reversed.stands.find((stand) => stand.id === 'M')
+    expect(reversedMeal?.kind).toBe('meal_halt')
+  })
+
+  it('mirrors a dead zone to the same clearance from the (now opposite) nearer stand', () => {
+    const corridor = baseCorridor({
+      deadZones: [{ fromMetres: 20_000, toMetres: 30_000, reason: 'no_cellular_coverage' }],
+    })
+    const reversed = reverseCorridor(corridor)
+    expect(reversed.deadZones).toHaveLength(1)
+    const zone = reversed.deadZones[0]!
+    expect(zone.fromMetres).toBeCloseTo(corridor.lengthMetres - 30_000, -1)
+    expect(zone.toMetres).toBeCloseTo(corridor.lengthMetres - 20_000, -1)
+  })
+
+  it('running the real committed BNG-MYS corridor backwards still ends at its own origin', () => {
+    // Not a synthetic fixture: the actual bundled corridor, so the reversal
+    // is checked against real routed geometry and not just the hand-built
+    // four-point test corridor above.
+    return loadCorridorTopology(config.intercityTopologyPath).then((topology) => {
+      const corridor = topology.corridors.find((c) => c.id === 'BNG-MYS')!
+      const reversed = reverseCorridor(corridor)
+      expect(() => validateCorridorTopology(topologyOf(reversed))).not.toThrow()
+      expect(reversed.stands[0]?.id).toBe(corridor.stands.at(-1)!.id)
+      expect(reversed.stands.at(-1)?.id).toBe(corridor.stands[0]!.id)
+    })
   })
 })

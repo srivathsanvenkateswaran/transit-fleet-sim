@@ -35,6 +35,32 @@ export interface NewCorridorDef {
   readonly tatakDirectionId: 0 | 1
   /** Origin-side hub for every departure on this corridor, matching the physical direction above - see FIXTURE_HUBS. */
   readonly hub: string
+  /**
+   * The hub at the corridor's *other* end, for a real Tatak service that
+   * runs the opposite way over the same road - see `reverseCorridor` in
+   * `src/geometry/corridorTopology.ts` and the "bidirectional rosters" note
+   * on `RosterDeparture.direction`. Absent means this corridor's reverse
+   * direction is never rostered, either because the far end has no fixture
+   * hub of its own (DND-ANK's Ankola) or because that direction carries no
+   * real service number to roster in the first place.
+   */
+  readonly reverseHub?: string
+  /**
+   * Real reverse-direction service numbers to leave off the roster even
+   * though they pass every other filter - because their own local
+   * stop_times fragment does not begin at this corridor's reverse-direction
+   * origin (the forward corridor's own last stand). `realDeparturesFor`
+   * reads a departure's clock off the *first* stop_sequence row its trip
+   * carries in this feed and schedules it as a full run from that corridor's
+   * own origin stand; a trip whose first row is some other, mid-corridor
+   * town would have that town's real clock reading relabelled as the
+   * corridor's own origin's, which is a different, worse claim than the
+   * "the real trip continues past where this corridor ends" approximation
+   * `CORRIDOR_EXCLUSIVE_SERVICE_NUMBERS` already accepts - that one keeps
+   * the one true origin and only understates the destination; this one
+   * would invent an origin the coach never called at. See MNG-KWR below.
+   */
+  readonly reverseExcludedServiceNumbers?: ReadonlySet<string>
 }
 
 /**
@@ -96,17 +122,36 @@ export interface NewCorridorDef {
  *   half worth having real numbers for.
  */
 export const NEW_CORRIDORS: readonly NewCorridorDef[] = [
-  { id: 'BNG-MYS', name: 'Bengaluru - Mysuru', tatakId: 'KA-BNG-MYS', tatakDir: 'ka-bng-mys', tatakDirectionId: 0, hub: 'KBS' },
-  { id: 'BNG-MNG', name: 'Bengaluru - Mangaluru', tatakId: 'KA-BNG-MNG', tatakDir: 'ka-bng-mng', tatakDirectionId: 0, hub: 'KBS' },
-  { id: 'BNG-CKM', name: 'Bengaluru - Chikkamagaluru', tatakId: 'KA-BNG-CKM', tatakDir: 'ka-bng-ckm', tatakDirectionId: 0, hub: 'KBS' },
-  { id: 'MYS-MDK', name: 'Madikeri - Mysuru', tatakId: 'KA-MYS-MDK', tatakDir: 'ka-mys-mdk', tatakDirectionId: 1, hub: 'MDK' },
-  { id: 'MYS-MNG', name: 'Mangaluru - Mysuru', tatakId: 'KA-MYS-MNG', tatakDir: 'ka-mys-mng', tatakDirectionId: 1, hub: 'MNG' },
-  { id: 'MNG-KWR', name: 'Mangaluru - Karwar', tatakId: 'KA-COAST', tatakDir: 'ka-coast', tatakDirectionId: 0, hub: 'MNG' },
+  { id: 'BNG-MYS', name: 'Bengaluru - Mysuru', tatakId: 'KA-BNG-MYS', tatakDir: 'ka-bng-mys', tatakDirectionId: 0, hub: 'KBS', reverseHub: 'MYS' },
+  { id: 'BNG-MNG', name: 'Bengaluru - Mangaluru', tatakId: 'KA-BNG-MNG', tatakDir: 'ka-bng-mng', tatakDirectionId: 0, hub: 'KBS', reverseHub: 'MNG' },
+  { id: 'BNG-CKM', name: 'Bengaluru - Chikkamagaluru', tatakId: 'KA-BNG-CKM', tatakDir: 'ka-bng-ckm', tatakDirectionId: 0, hub: 'KBS', reverseHub: 'CKM' },
+  { id: 'MYS-MDK', name: 'Madikeri - Mysuru', tatakId: 'KA-MYS-MDK', tatakDir: 'ka-mys-mdk', tatakDirectionId: 1, hub: 'MDK', reverseHub: 'MYS' },
+  { id: 'MYS-MNG', name: 'Mangaluru - Mysuru', tatakId: 'KA-MYS-MNG', tatakDir: 'ka-mys-mng', tatakDirectionId: 1, hub: 'MNG', reverseHub: 'MYS' },
+  {
+    id: 'MNG-KWR',
+    name: 'Mangaluru - Karwar',
+    tatakId: 'KA-COAST',
+    tatakDir: 'ka-coast',
+    tatakDirectionId: 0,
+    hub: 'MNG',
+    reverseHub: 'KWR',
+    // Both real dir1 numbers Tatak carries for this feed besides
+    // 1900KWRBNG (the one that genuinely starts at Karwar) are themselves
+    // mid-corridor fragments: 1630UDPBNG's own stop_times begin at Udupi
+    // (16:30), not Karwar, and 1916CDPBNG's begin at Kundapura (19:16) -
+    // see this file's `reverseExcludedServiceNumbers` doc. Rostering either
+    // as a Karwar departure would assert a five-plus-hour stretch of road
+    // neither coach ever drove.
+    reverseExcludedServiceNumbers: new Set(['1630UDPBNG', '1916CDPBNG']),
+  },
+  // No reverseHub: Ankola has no fixture hub of its own (§ FIXTURE_HUBS) and
+  // this corridor's own dataset carries zero real service numbers in either
+  // direction anyway - both ends already run on invented placeholders.
   { id: 'DND-ANK', name: 'Dandeli - Ankola', tatakId: 'KA-DND-ANK', tatakDir: 'ka-dnd-ank', tatakDirectionId: 0, hub: 'DND' },
-  { id: 'BNG-BJP', name: 'Bengaluru - Vijayapura', tatakId: 'KA-BNG-BJP', tatakDir: 'ka-bng-bjp', tatakDirectionId: 0, hub: 'KBS' },
-  { id: 'BNG-BDM', name: 'Bengaluru - Badami', tatakId: 'KA-BNG-BDM', tatakDir: 'ka-bng-bdm', tatakDirectionId: 0, hub: 'KBS' },
-  { id: 'BNG-BGK', name: 'Bengaluru - Bagalkot', tatakId: 'KA-BNG-BGK', tatakDir: 'ka-bng-bgk', tatakDirectionId: 0, hub: 'KBS' },
-  { id: 'BNG-HBL', name: 'Bengaluru - Hubballi', tatakId: 'KA-BNG-HBL', tatakDir: 'ka-bng-hbl', tatakDirectionId: 0, hub: 'KBS' },
+  { id: 'BNG-BJP', name: 'Bengaluru - Vijayapura', tatakId: 'KA-BNG-BJP', tatakDir: 'ka-bng-bjp', tatakDirectionId: 0, hub: 'KBS', reverseHub: 'BJP' },
+  { id: 'BNG-BDM', name: 'Bengaluru - Badami', tatakId: 'KA-BNG-BDM', tatakDir: 'ka-bng-bdm', tatakDirectionId: 0, hub: 'KBS', reverseHub: 'BDM' },
+  { id: 'BNG-BGK', name: 'Bengaluru - Bagalkot', tatakId: 'KA-BNG-BGK', tatakDir: 'ka-bng-bgk', tatakDirectionId: 0, hub: 'KBS', reverseHub: 'BGK' },
+  { id: 'BNG-HBL', name: 'Bengaluru - Hubballi', tatakId: 'KA-BNG-HBL', tatakDir: 'ka-bng-hbl', tatakDirectionId: 0, hub: 'KBS', reverseHub: 'HUB' },
 ]
 
 /**

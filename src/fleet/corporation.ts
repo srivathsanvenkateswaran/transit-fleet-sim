@@ -55,6 +55,18 @@ export const FIXTURE_HUBS: readonly FixtureHub[] = [
   { code: 'CKM', division: 'Chikkamagaluru', corporation: 'KSRTC' },
   { code: 'UDP', division: 'Udupi', corporation: 'KSRTC' },
   { code: 'DND', division: 'Dandeli', corporation: 'NWKRTC' },
+  // Added for the bidirectional-roster coverage pass: a `reverse` departure
+  // on BNG-BJP, BNG-BDM, BNG-BGK or MNG-KWR originates at the corridor's
+  // other end, which needed its own hub the way `MNG` already gets one on
+  // MYS-MNG. Same editorial status as the four above - Vijayapura, Badami
+  // and Bagalkot are grouped with NWKRTC's real Belagavi-division territory
+  // (the same region `DND` already sits in), and Karwar with it for the
+  // same reason; not a verified fact about NWKRTC's actual division
+  // boundaries.
+  { code: 'BJP', division: 'Vijayapura', corporation: 'NWKRTC' },
+  { code: 'BDM', division: 'Badami', corporation: 'NWKRTC' },
+  { code: 'BGK', division: 'Bagalkot', corporation: 'NWKRTC' },
+  { code: 'KWR', division: 'Karwar', corporation: 'NWKRTC' },
 ]
 
 export function fixtureHub(code: string): FixtureHub | null {

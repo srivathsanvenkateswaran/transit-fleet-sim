@@ -227,3 +227,83 @@ export function buildCorridorTrack(points: readonly Coordinate[], id: string): S
     points.map((point, sequence) => ({ ...point, sequence })),
   )
 }
+
+/**
+ * The other physical direction over the same road.
+ *
+ * docs/intercity-coaches.md never named a "reverse corridor" because the
+ * corridor build pipeline only ever modelled one direction per id - see
+ * `NEW_CORRIDORS`'s own comment in `scripts/lib/newCorridors.ts` on why. A
+ * real Tatak service running the opposite way was therefore simply dropped
+ * from every roster, which is the "single-direction roster mechanism"
+ * limitation the coach coverage pass ran into.
+ *
+ * This is the honest fix rather than a second corridor: the road, the OSRM
+ * geometry and the dead zones are the same asphalt travelled the other way,
+ * so nothing here invents a fixture or a highway-spanning route. It mirrors
+ * the committed track (haversine leg lengths are symmetric, so summing them
+ * in the reverse order reproduces the same cumulative distances to within
+ * floating-point rounding), re-projects every stand onto that mirrored track
+ * exactly as `build-corridors.ts` does for the forward direction, and swaps
+ * `boarding` and `terminal` on the two ends - the towns in between keep
+ * whatever kind they already had, because a meal halt or a crew change is
+ * still that halt travelled backwards.
+ *
+ * The result satisfies every check `validateCorridorTopology` runs - see
+ * `tests/geometry/corridorTopology.test.ts`'s "the reverse of a corridor is
+ * itself a valid corridor" case - even though it is never written to
+ * `corridor-topology.json` and never reloaded through `loadCorridorTopology`.
+ * It exists only in memory, built once per corridor a bidirectional roster
+ * actually uses (`corridorRoster.ts`'s `buildRoster` and `coachWorld.ts`'s
+ * `CoachSimulation`), for exactly the corridors whose roster carries a
+ * `direction: 'reverse'` departure.
+ */
+export function reverseCorridor(corridor: Corridor): Corridor {
+  const reversedPoints = [...corridor.track.points].map((point) => ({ lat: point.lat, lon: point.lon })).reverse()
+  const track = buildCorridorTrack(reversedPoints, corridor.id)
+
+  const standOrder = [...corridor.stands].reverse()
+  const stands: CorridorStand[] = standOrder.map((stand, index) => {
+    const projected = projectStop(track, { id: stand.id, lat: stand.lat, lon: stand.lon })
+    const kind: StandKind = index === 0 ? 'boarding' : index === standOrder.length - 1 ? 'terminal' : stand.kind
+    return {
+      ...stand,
+      kind,
+      distanceMetres: Math.round(projected.stopDistanceMetres),
+    }
+  })
+  const distanceById = new Map(stands.map((stand) => [stand.id, stand.distanceMetres]))
+
+  const segments: CorridorSegment[] = [...corridor.segments].reverse().map((segment) => {
+    const fromDistance = distanceById.get(segment.toStandId) ?? 0
+    const toDistance = distanceById.get(segment.fromStandId) ?? 0
+    return {
+      fromStandId: segment.toStandId,
+      toStandId: segment.fromStandId,
+      kind: segment.kind,
+      geometry: segment.geometry,
+      distanceMetres: toDistance - fromDistance,
+      points: [...segment.points].reverse(),
+    }
+  })
+
+  const deadZones: CorridorDeadZone[] = [...corridor.deadZones]
+    .map((zone) => ({
+      fromMetres: corridor.lengthMetres - zone.toMetres,
+      toMetres: corridor.lengthMetres - zone.fromMetres,
+      reason: zone.reason,
+    }))
+    .sort((a, b) => a.fromMetres - b.fromMetres)
+
+  return {
+    id: corridor.id,
+    name: corridor.name,
+    nameLocal: corridor.nameLocal,
+    corporations: corridor.corporations,
+    lengthMetres: track.lengthMetres,
+    stands,
+    segments,
+    deadZones,
+    track,
+  }
+}

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import type { Corridor, CorridorStand, StandKind } from '../geometry/corridorTopology.js'
+import { reverseCorridor, type Corridor, type CorridorStand, type StandKind } from '../geometry/corridorTopology.js'
 import type { ServiceClass } from '../fleet/serviceClass.js'
 import {
   compactToIso,
@@ -58,6 +58,23 @@ export interface RosterDeparture {
    */
   readonly runsOn?: readonly number[]
   readonly note?: string
+  /**
+   * Which physical direction this departure actually runs, over the
+   * corridor's own built stand order (index 0 toward the last stand).
+   * Absent means `forward`, which is every departure this roster carried
+   * before the coverage pass that added this field - the corridor's
+   * committed topology already models exactly one direction per id (see
+   * `NEW_CORRIDORS`'s comment in `scripts/lib/newCorridors.ts`), and every
+   * one of those departures already runs that way.
+   *
+   * `reverse` is the honest fix for a real Tatak service that runs the
+   * other way over the same road: `reverseCorridor` mirrors the committed
+   * geometry rather than a second corridor being invented for it, and
+   * `buildRoster` schedules a `reverse` departure against that mirrored
+   * corridor so its calls, its dwell kinds and its dead zones all read
+   * correctly starting from what was previously the terminal.
+   */
+  readonly direction?: 'forward' | 'reverse'
 }
 
 export interface RosterCorridor {
@@ -104,6 +121,8 @@ export interface CoachDuty {
   readonly startTime: string
   readonly calls: readonly ScheduledCall[]
   readonly provenance: string
+  /** See `RosterDeparture.direction`. Always present here, never inferred at read time. */
+  readonly direction: 'forward' | 'reverse'
 }
 
 export interface RosterWindow {
@@ -194,15 +213,58 @@ export function buildRoster(
   for (const rosterCorridor of roster.corridors) {
     const corridor = corridorById.get(rosterCorridor.corridorId)
     if (corridor === undefined) continue
-    const calls = scheduleCalls(corridor, profile)
+    const forwardCalls = scheduleCalls(corridor, profile)
+    // The reverse corridor and its own call schedule are only built when a
+    // departure on this corridor actually needs them - most corridors this
+    // roster carries have no `reverse` row at all, and mirroring a track
+    // nobody schedules against would be wasted work on every process boot.
+    let reversed: Corridor | null = null
+    let reverseCalls: readonly Omit<ScheduledCall, 'arrivalTime' | 'departureTime'>[] | null = null
     for (const serviceDate of window.serviceDates) {
       for (const departure of rosterCorridor.departures) {
         if (!runsOnServiceDate(departure, serviceDate)) continue
-        duties.push(dutyFor(corridor, departure, serviceDate, calls, profile))
+        const direction = departure.direction ?? 'forward'
+        if (direction === 'reverse') {
+          if (reversed === null) {
+            reversed = reverseCorridor(corridor)
+            reverseCalls = scheduleCalls(reversed, profile)
+          }
+          duties.push(dutyFor(reversed, departure, serviceDate, reverseCalls!, profile, direction))
+        } else {
+          duties.push(dutyFor(corridor, departure, serviceDate, forwardCalls, profile, direction))
+        }
       }
     }
   }
-  return duties.sort((a, b) => a.departureAt.getTime() - b.departureAt.getTime() || a.id.localeCompare(b.id))
+  return dedupeIds(duties).sort(
+    (a, b) => a.departureAt.getTime() - b.departureAt.getTime() || a.id.localeCompare(b.id),
+  )
+}
+
+/**
+ * `dutyFor`'s id is `<corridor>-<serviceDate>-<HHMM>[R]`, which collides
+ * when two real services genuinely leave the same corridor, in the same
+ * direction, at the same clock reading - not hypothetical: Tatak's own data
+ * has `0615KZKBNG` and `0630CNRBNG` both departing Mysuru at 11:30 on
+ * BNG-MYS's reverse direction (their own service numbers name an earlier
+ * town on a longer through-run, not this leg's own departure clock). Two
+ * different real coaches at the same minute is an everyday fact and not
+ * this pass's job to resolve; only their id needs to come out different, so
+ * every duty after the first at a given id gets its own `serviceId`
+ * appended. The result no longer matches the composite-id parse in
+ * `coachWorld.ts`'s `dutyLookup` fallback (`(\d{4}R?)$`), which only
+ * softens one error message (a stale/mistyped id like this one gets
+ * `unknown_duty` rather than the more specific `outside_roster_window`) -
+ * every other lookup path (by `serviceId`+date, and the id's own entry in
+ * `#dutyById`) is exact either way.
+ */
+function dedupeIds(duties: readonly CoachDuty[]): CoachDuty[] {
+  const seen = new Map<string, number>()
+  return duties.map((duty) => {
+    const count = seen.get(duty.id) ?? 0
+    seen.set(duty.id, count + 1)
+    return count === 0 ? duty : { ...duty, id: `${duty.id}-${duty.serviceId}` }
+  })
 }
 
 /**
@@ -262,6 +324,7 @@ function dutyFor(
   serviceDate: string,
   calls: readonly Omit<ScheduledCall, 'arrivalTime' | 'departureTime'>[],
   profile: ScheduleProfile,
+  direction: 'forward' | 'reverse',
 ): CoachDuty {
   const departureOffsetSeconds = secondsOfDay(departure.departureTime)
   const serviceDateMidnight = localInstant(compactToIso(serviceDate), '00:00', profile.timezone)
@@ -272,8 +335,15 @@ function dutyFor(
     arrivalTime: gtfsTimeFromSeconds(departureOffsetSeconds + call.arrivalSeconds),
     departureTime: gtfsTimeFromSeconds(departureOffsetSeconds + call.departureSeconds),
   }))
+  // A `reverse` departure's clock reading is its own real Tatak time and can
+  // coincide with a `forward` departure's on the same corridor and service
+  // date - two coaches passing each other at the same minute is ordinary, not
+  // a collision, until this id has to name one of them. The trailing `R`
+  // keeps the two ids apart; `coachWorld.ts`'s composite-id parse tolerates
+  // it (`(\d{4}R?)$`) rather than needing a second id shape.
+  const timeCode = `${departure.departureTime.replace(':', '').slice(0, 4)}${direction === 'reverse' ? 'R' : ''}`
   return {
-    id: `${corridor.id}-${serviceDate}-${departure.departureTime.replace(':', '').slice(0, 4)}`,
+    id: `${corridor.id}-${serviceDate}-${timeCode}`,
     corridorId: corridor.id,
     serviceId: departure.serviceId,
     number: departure.number,
@@ -286,6 +356,7 @@ function dutyFor(
     departureAt,
     scheduledArrivalAt: new Date(departureAt.getTime() + runSeconds * 1_000),
     startTime: gtfsTimeFromSeconds(departureOffsetSeconds),
+    direction,
     calls: timedCalls,
     provenance: departure.confidence,
   }
@@ -309,6 +380,16 @@ export interface AssignmentPoolMember {
   readonly bin: string
   readonly corridorId: string
   readonly serviceClassId: string
+  /**
+   * The hub this coach is based at, matched against `CoachDuty.hub` below -
+   * needed since the bidirectional-roster pass. Two directions on the same
+   * corridor id can carry the same class (BNG-HSP's `pallakki` runs both a
+   * KBS-origin forward duty and an HSP-origin `reverse` one), and without
+   * this a Hampi-based coach could be drawn for a Bengaluru-origin working
+   * - same corridor, same class, wrong division and wrong corporation on
+   * the wire.
+   */
+  readonly hub: string
 }
 
 /**
@@ -338,7 +419,10 @@ export function assignFleet(
   const busyUntil = new Map<string, number>()
   for (const duty of duties) {
     const candidates = pool.filter(
-      (member) => member.corridorId === duty.corridorId && member.serviceClassId === duty.serviceClassId,
+      (member) =>
+        member.corridorId === duty.corridorId &&
+        member.serviceClassId === duty.serviceClassId &&
+        member.hub === duty.hub,
     )
     if (candidates.length === 0) continue
     const offset = Math.floor(rand(seed, duty.id, 'assignment', 0) * candidates.length)

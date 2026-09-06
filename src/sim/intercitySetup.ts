@@ -93,14 +93,20 @@ export function coachSlotsFor(
   const duties = buildRoster(corridors, setup.roster, window, schedule)
   const slots: CoachRosterSlot[] = []
   for (const corridor of corridors) {
-    const classes = new Set(
-      duties.filter((duty) => duty.corridorId === corridor.id).map((duty) => duty.serviceClassId),
-    )
-    for (const serviceClassId of [...classes].sort()) {
-      const forClass = duties.filter(
-        (duty) => duty.corridorId === corridor.id && duty.serviceClassId === serviceClassId,
-      )
-      const hub = forClass[0]?.hub ?? ''
+    const onCorridor = duties.filter((duty) => duty.corridorId === corridor.id)
+    // Keyed by class *and* hub, not class alone: a `reverse` departure
+    // (§ bidirectional rosters) departs from the corridor's other end, which
+    // is usually a different operating division with its own corporation -
+    // MNG-KWR's own dir1 departures are Karwar-origin, not Mangaluru-origin,
+    // and a Karwar coach should draw its plate from Karwar's own district,
+    // not be silently folded into whichever hub happened to sort first.
+    const groups = new Map<string, { readonly hub: string; readonly serviceClassId: string }>()
+    for (const duty of onCorridor) {
+      groups.set(`${duty.serviceClassId}|${duty.hub}`, { hub: duty.hub, serviceClassId: duty.serviceClassId })
+    }
+    for (const key of [...groups.keys()].sort()) {
+      const { hub, serviceClassId } = groups.get(key)!
+      const forGroup = onCorridor.filter((duty) => duty.serviceClassId === serviceClassId && duty.hub === hub)
       const corporation = fixtureHub(hub)?.corporation
       if (corporation === undefined) {
         throw new Error(`The roster names hub ${hub}, which has no known division or corporation`)
@@ -110,7 +116,7 @@ export function coachSlotsFor(
         corporation,
         serviceClassId: serviceClassId as ServiceClassId,
         homeCorridorId: corridor.id,
-        count: poolSizeFor(forClass),
+        count: poolSizeFor(forGroup),
       })
     }
   }

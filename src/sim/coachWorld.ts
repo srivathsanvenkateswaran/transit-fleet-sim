@@ -1,6 +1,6 @@
 import { CORPORATION_NAMES, fixtureHub, type Corporation } from '../fleet/corporation.js'
 import type { ServiceClass } from '../fleet/serviceClass.js'
-import type { Corridor, CorridorTopology } from '../geometry/corridorTopology.js'
+import { reverseCorridor, type Corridor, type CorridorTopology } from '../geometry/corridorTopology.js'
 import { positionAt } from '../geometry/shape.js'
 import type {
   DutyObservation,
@@ -145,6 +145,16 @@ export class CoachSimulation implements IntercityPort {
   readonly #manifests: ManifestStore
   readonly #runs = new Map<string, CoachRun>()
   readonly #binToDuties = new Map<string, CoachDuty[]>()
+  /**
+   * The mirrored geometry for a corridor's `reverse` direction (§ "single-
+   * direction roster mechanism" fix), built lazily and once per corridor
+   * that actually rosters a `reverse` departure - most corridors never need
+   * one. `reverseCorridor` is a pure function of the forward corridor
+   * already loaded from the committed topology, so this cache never goes
+   * stale within a process and never touches `data/bundle/corridor-
+   * topology.json` at all.
+   */
+  readonly #reverseCorridors = new Map<string, Corridor>()
 
   constructor(options: CoachWorldOptions) {
     this.#profiles = options.profiles
@@ -161,6 +171,10 @@ export class CoachSimulation implements IntercityPort {
         bin: member.bin,
         corridorId: member.homeRouteNumber,
         serviceClassId: member.serviceClass ?? '',
+        // The bin's own hub prefix, exactly as `vehicleRef` and
+        // `generateCoachFleet` already read/write it (`formatBin(slot.hub,
+        // serial)`) - see `AssignmentPoolMember.hub`'s own comment.
+        hub: member.bin.slice(0, 3),
       }))
     this.#assignments = assignFleet(
       this.#duties,
@@ -346,7 +360,7 @@ export class CoachSimulation implements IntercityPort {
       // and this process does not hold that day - which is a `400` carrying
       // the window, never a `404` telling a caller its id is wrong when it is
       // not (§10.3). Anything else genuinely is an unknown duty.
-      const parsed = /^(.+)-(\d{8})-(\d{4})$/.exec(query.dutyId)
+      const parsed = /^(.+)-(\d{8})-(\d{4}R?)$/.exec(query.dutyId)
       const corridorKnown =
         parsed !== null && this.#corridors.some((corridor) => corridor.id === parsed[1])
       if (corridorKnown && !windowContains(this.#window, parsed![2]!)) {
@@ -949,7 +963,13 @@ export class CoachSimulation implements IntercityPort {
   private corridorOf(duty: CoachDuty): Corridor {
     const corridor = this.#corridors.find((candidate) => candidate.id === duty.corridorId)
     if (corridor === undefined) throw new Error(`Duty ${duty.id} names missing corridor ${duty.corridorId}`)
-    return corridor
+    if (duty.direction !== 'reverse') return corridor
+    let reversed = this.#reverseCorridors.get(corridor.id)
+    if (reversed === undefined) {
+      reversed = reverseCorridor(corridor)
+      this.#reverseCorridors.set(corridor.id, reversed)
+    }
+    return reversed
   }
 
   serviceClass(id: string): ServiceClass | null {

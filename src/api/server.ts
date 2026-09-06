@@ -180,12 +180,18 @@ async function route(
     return
   }
   if (url.pathname === '/fleet/metro/arrivals') {
+    // `world.now()` and not a fresh `new Date()`: the metro service window
+    // (day-of-week first train, per-line last train) has to be driven by the
+    // same clock as every other simulated vehicle, so that SIM_CLOCK moving
+    // the world to 02:00 on a Sunday also moves a rider's metro board to
+    // "closed until 07:00" rather than answering off the real wall clock the
+    // rest of the simulator was told to ignore.
     const result = metroArrivals(
       url.searchParams.get('station'),
       url.searchParams.get('towards'),
       url.searchParams.get('line'),
       url.searchParams.get('limit'),
-      new Date(),
+      world.now(),
     )
     response.setHeader('cache-control', 'no-store')
     send(response, result.status, result.body)

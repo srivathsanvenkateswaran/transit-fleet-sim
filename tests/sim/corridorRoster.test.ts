@@ -21,14 +21,15 @@ const BOOT_AT = new Date('2026-09-05T14:00:00+05:30')
 describe('the multi-day roster (§3, §11.3)', () => {
   it('dispatches by departure rather than by spread: one duty per departure per service date', async () => {
     const { simulation } = await coachHarness(BOOT_AT)
-    // Six daily departures over a three-day window (three of BNG-HSP's own
-    // invented and sourced rows, plus three real KARNATAKA_SARIGE numbers
-    // §7.4 added from Tatak's KA-BNG-HMP feed - 0930BNGHSP, 1630BNGKPL,
-    // 2130BNGHSP), plus the weekend relief on the two service dates it
-    // runs: 6*3 + 2. `BUSES_PER_ROUTE` does not apply and no configuration
-    // says how many coaches there are - the fleet size falls out of the
-    // roster (§3.5).
-    expect(simulation.rosteredCount).toBe(20)
+    // Seven daily departures over a three-day window (three of BNG-HSP's own
+    // invented and sourced rows, three real KARNATAKA_SARIGE numbers §7.4
+    // added from Tatak's KA-BNG-HMP feed - 0930BNGHSP, 1630BNGKPL,
+    // 2130BNGHSP - plus 2001HMPBNG, the one real `reverse` departure the
+    // bidirectional-roster pass added), plus the weekend relief on the two
+    // service dates it runs: 7*3 + 2. `BUSES_PER_ROUTE` does not apply and no
+    // configuration says how many coaches there are - the fleet size falls
+    // out of the roster (§3.5).
+    expect(simulation.rosteredCount).toBe(23)
     // The window opens a service day behind the current one: that is the day
     // whose 22:59 departure is still on the road at 03:00.
     expect(simulation.rosterWindow.serviceDates).toEqual(['20260904', '20260905', '20260906'])

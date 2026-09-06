@@ -82,15 +82,24 @@ describe('loading the intercity setup', () => {
       3,
       defaultScheduleProfile,
     )
-    // One slot per class the roster actually runs on that corridor, sized to
-    // peak concurrency plus the one spare §12.5's substitution needs.
+    // One slot per class *and hub* the roster actually runs on this corridor,
+    // sized to peak concurrency plus the one spare §12.5's substitution
+    // needs - two `pallakki` slots, not one, because 2001HMPBNG (the
+    // bidirectional-roster pass's one real `reverse` departure here) is a
+    // Hampi-origin pallakki working out of hub HSP, a different operating
+    // division from every KBS-origin departure this corridor otherwise
+    // carries (§ coachSlotsFor's own comment on grouping by class and hub).
     expect(slots.map((slot) => slot.serviceClassId).sort()).toEqual([
       'airavat',
       'karnataka_sarige',
       'pallakki',
+      'pallakki',
       'rajahamsa_executive',
     ])
     expect(slots.every((slot) => slot.count >= 2)).toBe(true)
-    expect(slots.every((slot) => slot.hub === 'KBS' && slot.corporation === 'KSRTC')).toBe(true)
+    const kbsSlots = slots.filter((slot) => slot.hub !== 'HSP')
+    expect(kbsSlots.every((slot) => slot.hub === 'KBS' && slot.corporation === 'KSRTC')).toBe(true)
+    const hspSlot = slots.find((slot) => slot.hub === 'HSP')
+    expect(hspSlot?.corporation).toBe('KKRTC')
   })
 })
