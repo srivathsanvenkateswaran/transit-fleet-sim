@@ -46,6 +46,15 @@ export const FIXTURE_HUBS: readonly FixtureHub[] = [
   { code: 'MDK', division: 'Madikeri', corporation: 'KSRTC' },
   { code: 'HUB', division: 'Hubballi', corporation: 'NWKRTC' },
   { code: 'HSP', division: 'Hosapete', corporation: 'KKRTC' },
+  // Added alongside the seven new corridors in scripts/build-corridors.ts
+  // and scripts/build-corridor-roster.ts. Same editorial status as the five
+  // above: this project's own choice of division/corporation for a hub
+  // code its roster now needs, not a verified fact about KSRTC's or
+  // NWKRTC's actual division structure.
+  { code: 'MNG', division: 'Mangaluru', corporation: 'KSRTC' },
+  { code: 'CKM', division: 'Chikkamagaluru', corporation: 'KSRTC' },
+  { code: 'UDP', division: 'Udupi', corporation: 'KSRTC' },
+  { code: 'DND', division: 'Dandeli', corporation: 'NWKRTC' },
 ]
 
 export function fixtureHub(code: string): FixtureHub | null {

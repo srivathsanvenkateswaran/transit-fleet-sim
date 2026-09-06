@@ -75,7 +75,14 @@ export interface CorridorTopologyLimits {
 }
 
 export const DEFAULT_CORRIDOR_LIMITS: CorridorTopologyLimits = {
-  maxDetourRatio: 1.6,
+  // 1.6 held for BNG-HSP alone. DND-ANK (Dandeli to Ankola) is a real ghat
+  // crossing - Dandeli sits inside the Western Ghats forest and the only
+  // drivable road out to the coast at Ankola goes the long way round via
+  // Yellapur; a real, live OSRM route between the two towns comes back at
+  // a 1.79 ratio against the straight-line distance (132 km routed against
+  // 73.6 km direct). Raised to 1.85 rather than dropping the check or the
+  // corridor, so the check still catches an actual bad route.
+  maxDetourRatio: 1.85,
   maxStandGapMetres: 180_000,
   maxStandOffsetMetres: 500,
 }

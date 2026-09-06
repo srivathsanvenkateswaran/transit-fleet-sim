@@ -64,8 +64,8 @@ function topologyOf(...corridors: readonly Corridor[]): CorridorTopology {
 describe('the committed corridor topology (BNG-HSP)', () => {
   it('loads and passes every applicable integrity check', async () => {
     const topology = await loadCorridorTopology(config.intercityTopologyPath)
-    expect(topology.corridors.map((corridor) => corridor.id)).toEqual(['BNG-HSP'])
-    const corridor = topology.corridors[0]!
+    expect(topology.corridors.map((corridor) => corridor.id)).toContain('BNG-HSP')
+    const corridor = topology.corridors.find((c) => c.id === 'BNG-HSP')!
     expect(corridor.stands).toHaveLength(9)
     expect(corridor.segments).toHaveLength(8)
     expect(corridor.stands[0]?.kind).toBe('boarding')
@@ -75,7 +75,7 @@ describe('the committed corridor topology (BNG-HSP)', () => {
 
   it('routes real road geometry rather than falling back to a straight line for every segment', async () => {
     const topology = await loadCorridorTopology(config.intercityTopologyPath)
-    const corridor = topology.corridors[0]!
+    const corridor = topology.corridors.find((c) => c.id === 'BNG-HSP')!
     // §9.3: "a straight line between stands is not acceptable as the
     // default." At least the great majority of an 8-segment, ~420 km corridor
     // must be genuinely routed, or this pipeline built nothing.
@@ -86,7 +86,7 @@ describe('the committed corridor topology (BNG-HSP)', () => {
 
   it('publishes which segments are urban and which are highway, on both ends of the corridor', async () => {
     const topology = await loadCorridorTopology(config.intercityTopologyPath)
-    const corridor = topology.corridors[0]!
+    const corridor = topology.corridors.find((c) => c.id === 'BNG-HSP')!
     expect(corridor.segments[0]?.kind).toBe('urban')
     expect(corridor.segments.at(-1)?.kind).toBe('urban')
     expect(corridor.segments.some((segment) => segment.kind === 'highway')).toBe(true)
@@ -94,7 +94,7 @@ describe('the committed corridor topology (BNG-HSP)', () => {
 
   it('places every dead zone at least 500m clear of every stand, summing to roughly the documented share of the route', async () => {
     const topology = await loadCorridorTopology(config.intercityTopologyPath)
-    const corridor = topology.corridors[0]!
+    const corridor = topology.corridors.find((c) => c.id === 'BNG-HSP')!
     expect(corridor.deadZones).toHaveLength(3)
     const totalZoneMetres = corridor.deadZones.reduce((sum, zone) => sum + (zone.toMetres - zone.fromMetres), 0)
     expect(totalZoneMetres / corridor.lengthMetres).toBeGreaterThan(0.05)

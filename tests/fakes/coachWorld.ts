@@ -47,14 +47,15 @@ export interface CoachHarness {
 export async function coachHarness(
   bootAt: Date,
   overrides: Partial<CoachWorldProfiles> = {},
+  corridorIds: readonly string[] = CORRIDOR_IDS,
 ): Promise<CoachHarness> {
   const topology = await loadCorridorTopology(TOPOLOGY_PATH)
   const serviceClasses = await loadServiceClasses(CLASSES_PATH)
-  const roster = await loadCorridorRoster(ROSTER_PATH, CORRIDOR_IDS)
+  const roster = await loadCorridorRoster(ROSTER_PATH, corridorIds)
   const profiles: CoachWorldProfiles = { ...defaultCoachProfiles, ...overrides }
   const slots = coachSlotsFor(
     { topology, serviceClasses, roster },
-    CORRIDOR_IDS,
+    corridorIds,
     bootAt,
     profiles.rosterDays,
     defaultScheduleProfile,
@@ -65,7 +66,7 @@ export async function coachHarness(
     serviceClasses,
     roster,
     fleet: coaches,
-    corridorIds: CORRIDOR_IDS,
+    corridorIds,
     profiles,
     bootAt,
   })

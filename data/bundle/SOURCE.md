@@ -161,3 +161,48 @@ is about nine and a half hours rather than the reported seven and a half. The
 geometry is the measured thing and the reported duration is the secondary one;
 this pipeline does not adjust real routed geometry to match an unverified
 timetable.
+
+# The seven corridors added after BNG-HSP
+
+`corridor-topology.json`'s `BNG-MYS`, `BNG-MNG`, `BNG-CKM`, `MYS-MDK`,
+`MYS-MNG`, `MNG-KWR` and `DND-ANK` entries, and their entries in
+`corridor-roster.json`, are generated - not hand-authored the way BNG-HSP's
+`STANDS` list and roster rows are. Regenerate both from a sibling Tatak
+checkout (`TATAK_REPO_PATH`, defaulting to `../Tatak`) with:
+
+```
+npx tsx scripts/build-corridors.ts        # topology - set CORRIDOR_OSRM_LIVE=true to refresh routing
+npx tsx scripts/build-corridor-roster.ts  # roster
+npm run check-corridor-topology
+```
+
+Both scripts, and the corridor/class/hub tables they share, live in
+`scripts/build-corridors.ts`, `scripts/build-corridor-roster.ts` and
+`scripts/lib/`. `scripts/lib/newCorridors.ts` documents, per corridor: which
+physical direction is modelled (this roster has one fixed stand order per
+corridor, so a corridor whose only real service numbers run one way is
+built in that direction even where it reads against the corridor id's own
+letters - MYS-MDK and MYS-MNG both do this), which Tatak classes have no
+match in `corridor-classes.json` and are dropped, and the four real service
+numbers Tatak's own dataset assigns to a trip on two different corridors at
+once (dropped from both rather than guessed at).
+
+Every stand's coordinates, name and order come straight from Tatak's
+generated GTFS (`data/intercity/<dir>/stops.txt`, `stop_times.txt`) -
+`provenance: "gtfs_bundle"` on each, not `"authored_secondary"` like
+BNG-HSP's hand-picked stands. The three-letter stand-code labels
+(`KA-STAND-<code>-01`) are this project's own invention, not a Tatak or
+KSRTC field - see the table in `scripts/lib/newCorridors.ts`. `deadZones` is
+empty on all seven: nothing in Tatak's data gives a documented basis for one,
+and an invented zone would be a worse gap than none. `DND-ANK` is the one
+corridor with zero real service numbers in Tatak's data in either direction;
+its three roster departures are that corridor's own generated trips,
+rostered `confidence: "invented"`, the same convention BNG-HSP's own
+invented rows already use.
+
+`DND-ANK`'s routed geometry comes back with a real 1.79 detour ratio against
+the straight-line distance between Dandeli and Ankola (Dandeli sits inside
+the Western Ghats forest; the only drivable road out to the coast goes the
+long way round via Yellapur) - `DEFAULT_CORRIDOR_LIMITS.maxDetourRatio` in
+`src/geometry/corridorTopology.ts` was raised from 1.6 to 1.85 for this
+reason, rather than dropping the check or the corridor.

@@ -32,7 +32,7 @@ describe('loading the intercity setup', () => {
 
   it('loads the real bundled topology and service-class table when a known corridor is named', async () => {
     const setup = await loadIntercitySetup(baseOptions())
-    expect(setup?.topology.corridors.map((corridor) => corridor.id)).toEqual(['BNG-HSP'])
+    expect(setup?.topology.corridors.map((corridor) => corridor.id)).toContain('BNG-HSP')
     expect(setup?.serviceClasses.length).toBe(6)
   })
 
@@ -54,7 +54,7 @@ describe('loading the intercity setup', () => {
 
   it('loads the roster and fails fast when a configured corridor has no roster entry', async () => {
     const setup = await loadIntercitySetup(baseOptions())
-    expect(setup?.roster.corridors.map((corridor) => corridor.corridorId)).toEqual(['BNG-HSP'])
+    expect(setup?.roster.corridors.map((corridor) => corridor.corridorId)).toContain('BNG-HSP')
     // §13.3: the roster is a fixture, not a timetable, and it says so on the
     // file itself as well as in SOURCE.md and on /fleet/corridors.
     expect(setup?.roster.provenance.departures).toBe('authored_secondary')

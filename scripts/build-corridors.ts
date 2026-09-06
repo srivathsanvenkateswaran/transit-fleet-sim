@@ -30,12 +30,15 @@
  * `CORRIDOR_OSRM_LIVE=true` forces a live re-fetch to refresh the fixtures,
  * but neither is needed to reproduce the committed bundle.
  *
- * **Scope.** The task this script was written for names one corridor -
- * Bengaluru to Hosapete - because that is what the sibling projects are
- * building against, and building all five fixture corridors is future work,
- * not a shortcut taken here. `PVG-BNG`, the one corridor OSM has actually
- * mapped (relation 15728171), is not built by this pass either, which is why
- * `check-corridor-topology.ts` documents its check 7 as a no-op until it is.
+ * **Scope.** Originally one corridor - Bengaluru to Hosapete
+ * (`buildBngHsp`, an authored stand list) - because that was what the
+ * sibling projects were building against. `buildFromTatak` (below) adds
+ * seven more, read from the Tatak repository's own generated GTFS instead
+ * of an authored list - see `scripts/lib/newCorridors.ts` and
+ * `scripts/lib/tatakSource.ts`. `PVG-BNG`, the one corridor OSM has
+ * actually mapped (relation 15728171), is still not built by this pass,
+ * which is why `check-corridor-topology.ts` documents its check 7 as a
+ * no-op until it is.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import type { Corporation } from '../src/fleet/corporation.js'
@@ -53,6 +56,8 @@ import {
 import { haversineMetres, type Coordinate } from '../src/geometry/haversine.js'
 import { projectStop } from '../src/geometry/projectStops.js'
 import { simplify } from '../src/geometry/simplify.js'
+import { NEW_CORRIDORS, corporationForTerritory, standCodeFor, type NewCorridorDef } from './lib/newCorridors.js'
+import { loadTatakCorridor, spineOrder } from './lib/tatakSource.js'
 
 const SIMPLIFY_TOLERANCE_METRES = 15
 const OSRM_BASE_URL = 'https://router.project-osrm.org'
@@ -118,8 +123,13 @@ interface OsrmRoute {
   readonly routes: readonly { readonly distance: number; readonly geometry: { readonly coordinates: readonly [number, number][] } }[]
 }
 
-async function routeLeg(index: number, from: AuthoredStand, to: AuthoredStand): Promise<{ distanceMetres: number; points: readonly Coordinate[] }> {
-  const fixturePath = `${FIXTURE_DIR.replace(/\/$/, '')}/BNG-HSP/leg-${index}.json`
+async function routeLeg(
+  corridorId: string,
+  index: number,
+  from: AuthoredStand,
+  to: AuthoredStand,
+): Promise<{ distanceMetres: number; points: readonly Coordinate[] }> {
+  const fixturePath = `${FIXTURE_DIR.replace(/\/$/, '')}/${corridorId}/leg-${index}.json`
   let body: OsrmRoute
   if (!LIVE) {
     body = JSON.parse(await readFile(fixturePath, 'utf8')) as OsrmRoute
@@ -127,8 +137,8 @@ async function routeLeg(index: number, from: AuthoredStand, to: AuthoredStand): 
     const url = `${OSRM_BASE_URL}/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson&steps=false`
     const response = await fetch(url)
     body = (await response.json()) as OsrmRoute
-    await mkdir(`${FIXTURE_DIR.replace(/\/$/, '')}/BNG-HSP`, { recursive: true })
-    await writeFile(`${FIXTURE_DIR.replace(/\/$/, '')}/BNG-HSP/leg-${index}.json`, JSON.stringify(body, null, 2))
+    await mkdir(`${FIXTURE_DIR.replace(/\/$/, '')}/${corridorId}`, { recursive: true })
+    await writeFile(`${FIXTURE_DIR.replace(/\/$/, '')}/${corridorId}/leg-${index}.json`, JSON.stringify(body, null, 2))
   }
   if (body.code !== 'Ok' || body.routes[0] === undefined) {
     // §9.3: where routing genuinely fails, fall back to a straight line and
@@ -148,7 +158,7 @@ async function buildBngHsp(): Promise<Corridor> {
   for (let index = 0; index < STANDS.length - 1; index += 1) {
     const from = STANDS[index]!
     const to = STANDS[index + 1]!
-    const routed = await routeLeg(index, from, to)
+    const routed = await routeLeg('BNG-HSP', index, from, to)
     const isFallback = routed.points.length === 2
     const simplified = isFallback ? routed.points : simplify(routed.points, SIMPLIFY_TOLERANCE_METRES)
     legs.push({ from, to, distanceMetres: routed.distanceMetres, points: simplified, geometry: isFallback ? 'interpolated' : 'routed' })
@@ -224,21 +234,117 @@ function placeDeadZones(stands: readonly CorridorStand[]): readonly CorridorDead
   ]
 }
 
+/**
+ * Builds one of the seven corridors in `NEW_CORRIDORS` (docs in
+ * `scripts/lib/newCorridors.ts`) from Tatak's own boarding points -
+ * `scripts/lib/tatakSource.ts` reads Tatak's generated GTFS directly, so
+ * every stand's coordinates and order come from that dataset rather than
+ * being authored here the way BNG-HSP's `STANDS` above is.
+ *
+ * Unlike BNG-HSP: stand kind is always `boarding` (first), `terminal`
+ * (last) or `stand` (everything between) - Tatak's data gives no basis for
+ * `meal_halt` or `crew_change` on any of these seven, so neither is used;
+ * every segment is `highway` except the first and last, matching the
+ * existing convention; and `deadZones` is always empty - inventing one
+ * without a documented basis would be a worse gap than leaving it empty.
+ */
+async function buildFromTatak(def: NewCorridorDef): Promise<Corridor> {
+  const source = await loadTatakCorridor(def.tatakDir)
+  const ordered = spineOrder(source)
+  const orientedStops = def.tatakDirectionId === 1 ? [...ordered].reverse() : ordered
+
+  const stands0: AuthoredStand[] = orientedStops.map((stop, index) => {
+    const code = standCodeFor(stop.stopId)
+    const kind: StandKind = index === 0 ? 'boarding' : index === orientedStops.length - 1 ? 'terminal' : 'stand'
+    return {
+      id: `KA-STAND-${code}-01`,
+      name: stop.name,
+      nameLocal: null,
+      lat: stop.lat,
+      lon: stop.lon,
+      kind,
+    }
+  })
+
+  const legs: { from: AuthoredStand; to: AuthoredStand; distanceMetres: number; points: readonly Coordinate[]; geometry: GeometrySource }[] = []
+  for (let index = 0; index < stands0.length - 1; index += 1) {
+    const from = stands0[index]!
+    const to = stands0[index + 1]!
+    const routed = await routeLeg(def.id, index, from, to)
+    const isFallback = routed.points.length === 2
+    const simplified = isFallback ? routed.points : simplify(routed.points, SIMPLIFY_TOLERANCE_METRES)
+    legs.push({ from, to, distanceMetres: routed.distanceMetres, points: simplified, geometry: isFallback ? 'interpolated' : 'routed' })
+  }
+
+  const trackPoints: Coordinate[] = [legs[0]!.points[0]!]
+  for (const leg of legs) trackPoints.push(...leg.points.slice(1))
+  const track = buildCorridorTrack(trackPoints, def.id)
+
+  const stands: CorridorStand[] = stands0.map((stand) => {
+    const projected = projectStop(track, { id: stand.id, lat: stand.lat, lon: stand.lon })
+    return {
+      id: stand.id,
+      name: stand.name,
+      nameLocal: stand.nameLocal,
+      lat: stand.lat,
+      lon: stand.lon,
+      kind: stand.kind,
+      distanceMetres: Math.round(projected.stopDistanceMetres),
+      // Real Tatak GTFS boarding points, not hand-authored like BNG-HSP's.
+      provenance: 'gtfs_bundle',
+    }
+  })
+
+  const segments: CorridorSegment[] = legs.map((leg, index) => {
+    const fromDistance = stands[index]!.distanceMetres
+    const toDistance = stands[index + 1]!.distanceMetres
+    const isFirstOrLast = index === 0 || index === legs.length - 1
+    return {
+      fromStandId: leg.from.id,
+      toStandId: leg.to.id,
+      kind: isFirstOrLast ? 'urban' : 'highway',
+      geometry: leg.geometry,
+      distanceMetres: toDistance - fromDistance,
+      points: leg.points,
+    }
+  })
+
+  const corporations = [...new Set(orientedStops.map((stop) => corporationForTerritory(stop.territoryCorporation)))]
+
+  return {
+    id: def.id,
+    name: def.name,
+    nameLocal: null,
+    corporations,
+    lengthMetres: track.lengthMetres,
+    stands,
+    segments,
+    deadZones: [],
+    track,
+  }
+}
+
+const newCorridors: Corridor[] = []
+for (const def of NEW_CORRIDORS) newCorridors.push(await buildFromTatak(def))
+
 const topology: CorridorTopology = {
   source: 'openstreetmap',
   fetchedAt: new Date().toISOString().slice(0, 10),
   extract: { provider: 'osrm-demo', region: 'karnataka', date: new Date().toISOString().slice(0, 10) },
   router: { engine: 'osrm', version: 'public-demo', profile: 'car' },
-  corridors: [await buildBngHsp()],
+  corridors: [await buildBngHsp(), ...newCorridors],
 }
 
 const output = new URL('../data/bundle/corridor-topology.json', import.meta.url)
 await writeFile(output, `${JSON.stringify(topology, null, 2)}\n`)
 console.log(
   JSON.stringify({
-    corridors: topology.corridors.length,
-    lengthMetres: topology.corridors[0]?.lengthMetres,
-    trackPoints: topology.corridors[0]?.track.points.length,
+    corridors: topology.corridors.map((corridor) => ({
+      id: corridor.id,
+      lengthMetres: corridor.lengthMetres,
+      trackPoints: corridor.track.points.length,
+      segments: corridor.segments.map((segment) => segment.geometry),
+    })),
     output: output.pathname,
   }),
 )

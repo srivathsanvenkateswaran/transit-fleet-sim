@@ -264,7 +264,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     intercityTopologyPath: resolve(
       validation.nonEmpty('INTERCITY_TOPOLOGY_PATH', './data/bundle/corridor-topology.json'),
     ),
-    intercityHubCodes: validation.hubCodeList('INTERCITY_HUB_CODES', 'KBS,MYS,MDK,HUB,HSP'),
+    intercityHubCodes: validation.hubCodeList('INTERCITY_HUB_CODES', 'KBS,MYS,MDK,HUB,HSP,MNG,CKM,UDP,DND'),
     intercityServiceClasses: validation.list(
       'INTERCITY_SERVICE_CLASSES',
       'karnataka_sarige,rajahamsa_executive,airavat,airavat_club_class,ambaari_utsav,pallakki',
