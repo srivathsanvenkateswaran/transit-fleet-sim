@@ -49,6 +49,12 @@ import {
   predictIntercityStands,
   type IntercityPredictionProfile,
 } from './intercityPrediction.js'
+import {
+  demoContinuityBins,
+  demoContinuityDutyState,
+  isDemoContinuityLeg,
+  pinDemoContinuityChains,
+} from './demoContinuity.js'
 import { isoToCompact, localDayCompact } from './localTime.js'
 import { ManifestStore, publishManifest, type ManifestProfile } from './manifest.js'
 import { occupancyFor, projectOccupancy, type BusOccupancyProfile } from './occupancy.js'
@@ -165,8 +171,15 @@ export class CoachSimulation implements IntercityPort {
     this.#window = rosterWindowFor(options.bootAt, options.profiles.rosterDays, options.profiles.timezone)
     this.#duties = buildRoster(this.#corridors, options.roster, this.#window, options.profiles.schedule)
     this.#dutyById = new Map(this.#duties.map((duty) => [duty.id, duty]))
+    // `demoContinuityBins()` is excluded from the ordinary pool before
+    // `assignFleet` ever sees it - see `demoContinuity.ts`'s own comment.
+    // Left in, one of these coaches could be handed a second, unrelated,
+    // time-overlapping duty by the very per-corridor draw
+    // `pinDemoContinuityChains` below exists to override, and a bin with two
+    // simultaneous duties is not a thing `#binToDuties` can represent.
+    const pinnedBins = demoContinuityBins()
     const pool = options.fleet
-      .filter((member) => member.class === 'coach')
+      .filter((member) => member.class === 'coach' && !pinnedBins.has(member.bin))
       .map((member) => ({
         bin: member.bin,
         corridorId: member.homeRouteNumber,
@@ -176,11 +189,9 @@ export class CoachSimulation implements IntercityPort {
         // serial)`) - see `AssignmentPoolMember.hub`'s own comment.
         hub: member.bin.slice(0, 3),
       }))
-    this.#assignments = assignFleet(
+    this.#assignments = pinDemoContinuityChains(
       this.#duties,
-      pool,
-      options.profiles.seed,
-      options.profiles.substitutionRatePerDuty,
+      assignFleet(this.#duties, pool, options.profiles.seed, options.profiles.substitutionRatePerDuty),
     )
     for (const duty of this.#duties) {
       const assignment = this.#assignments.get(duty.id)
@@ -497,12 +508,30 @@ export class CoachSimulation implements IntercityPort {
 
   corridors(at: Date): IntercityResult {
     const today = localDayCompact(at, this.#profiles.timezone)
+    const nowMs = at.getTime()
     return {
       status: 200,
       body: {
         corridors: this.#corridors.map((corridor) => {
+          // A duty's own `serviceDate` is the day it pulled out, not the day
+          // it is on the road - a 22:59 departure runs most of its trip on
+          // the calendar day after its serviceDate. Filtering on
+          // `serviceDate === today` alone silently drops it from this list
+          // the moment midnight passes, even though the coach is still
+          // moving: at 01:05 the corridor would show its next scheduled
+          // pull-out and nothing else, which is what actually happens to be
+          // running right now going missing from the one endpoint an
+          // operator would check to find it. `activeAt` (used for `running`
+          // and `coverage` below already, and unaffected by this) is what
+          // decides whether a duty is genuinely on the road; a duty this
+          // corridor still owes an answer about - today's own list, plus
+          // whatever is actually running from the day before - is what
+          // belongs here too.
           const departures = this.#duties.filter(
-            (duty) => duty.corridorId === corridor.id && duty.serviceDate === today,
+            (duty) =>
+              duty.corridorId === corridor.id &&
+              (duty.serviceDate === today ||
+                (duty.departureAt.getTime() <= nowMs && duty.scheduledArrivalAt.getTime() > nowMs)),
           )
           const running = activeAt(this.#duties, at).filter((duty) => duty.corridorId === corridor.id)
           const tracked = running.filter((duty) => {
@@ -694,12 +723,19 @@ export class CoachSimulation implements IntercityPort {
       // The composite key is the run code and the service date together,
       // because a corridor runs the same coach on the same date once and a
       // second departure that day is a different duty.
-      dutyState: createDutyState(
-        bin,
-        duty.departureAt,
-        `${duty.serviceId}|${duty.serviceDate}`,
-        this.#profiles.duty,
-      ),
+      //
+      // One of the nine pinned demo legs (`demoContinuity.ts`) skips this
+      // draw entirely - see `isDemoContinuityLeg`'s own comment for why a
+      // sticker vehicle cannot also be subject to the roster's ordinary
+      // confidence model.
+      dutyState: isDemoContinuityLeg(duty.corridorId, duty.serviceId)
+        ? demoContinuityDutyState(duty.departureAt)
+        : createDutyState(
+            bin,
+            duty.departureAt,
+            `${duty.serviceId}|${duty.serviceDate}`,
+            this.#profiles.duty,
+          ),
       log: [
         {
           at: duty.departureAt.toISOString(),
