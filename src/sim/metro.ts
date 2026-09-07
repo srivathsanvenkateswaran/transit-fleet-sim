@@ -1,5 +1,6 @@
 import type { MetroLine, MetroStation, MetroTopology } from '../geometry/metroTopology.js'
 import type { MetroArrivalsQuery, MetroArrivalsResult } from '../world/port.js'
+import { cachedDateTimeFormat } from './dateTimeFormatCache.js'
 import { rand } from './rand.js'
 
 export interface MetroServiceProfile {
@@ -262,7 +263,7 @@ function parseTime(value: string): number {
 }
 
 function localParts(at: Date, timezone: string) {
-  return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+  return Object.fromEntries(cachedDateTimeFormat('en-CA', {
     timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
   }).formatToParts(at).map((part) => [part.type, part.value]))
 }
@@ -292,7 +293,7 @@ function localTime(at: Date, timezone: string): string {
  * as the wrong weekday.
  */
 function weekdayOfDay(day: string): string {
-  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short' }).format(
+  return cachedDateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short' }).format(
     new Date(`${day}T12:00:00.000Z`),
   )
 }

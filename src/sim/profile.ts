@@ -1,4 +1,5 @@
 import { config } from '../config.js'
+import { cachedDateTimeFormat } from './dateTimeFormatCache.js'
 import { rand } from './rand.js'
 
 export interface BusMotionProfile {
@@ -10,7 +11,7 @@ export interface BusMotionProfile {
   readonly dwellSecondsMean: number
   readonly dwellSecondsSd: number
   readonly peakSpeedFactor: number
-  readonly peakWindows: string
+  readonly peakWindowMinutes: readonly { start: number; end: number }[]
   readonly timezone: string
   readonly terminalLayoverSeconds: number
 }
@@ -24,7 +25,7 @@ export const defaultBusMotionProfile: BusMotionProfile = {
   dwellSecondsMean: config.busDwellSecondsMean,
   dwellSecondsSd: config.busDwellSecondsSd,
   peakSpeedFactor: config.busPeakSpeedFactor,
-  peakWindows: config.busPeakWindows,
+  peakWindowMinutes: config.busPeakWindowMinutes,
   timezone: config.simTimezone,
   terminalLayoverSeconds: config.busTerminalLayoverSeconds,
 }
@@ -66,7 +67,7 @@ function normal(
 }
 
 function isPeak(at: Date, profile: BusMotionProfile): boolean {
-  const parts = new Intl.DateTimeFormat('en-GB', {
+  const parts = cachedDateTimeFormat('en-GB', {
     timeZone: profile.timezone,
     hour: '2-digit',
     minute: '2-digit',
@@ -75,15 +76,9 @@ function isPeak(at: Date, profile: BusMotionProfile): boolean {
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0')
   const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '0')
   const current = hour * 60 + minute
-  return profile.peakWindows.split(',').some((window) => {
-    const [start, end] = window.split('-').map(minutesSinceMidnight)
-    return start !== undefined && end !== undefined && current >= start && current < end
-  })
-}
-
-function minutesSinceMidnight(value: string): number {
-  const [hour, minute] = value.split(':').map(Number)
-  return (hour ?? 0) * 60 + (minute ?? 0)
+  return profile.peakWindowMinutes.some(
+    ({ start, end }) => current >= start && current < end,
+  )
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

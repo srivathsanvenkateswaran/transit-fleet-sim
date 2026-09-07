@@ -1,5 +1,6 @@
 import { config } from '../config.js'
 import type { OccupancyObservation, OccupancyStatus, TrackingState } from '../world/port.js'
+import { cachedDateTimeFormat } from './dateTimeFormatCache.js'
 import { rand } from './rand.js'
 
 /**
@@ -325,7 +326,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 function localMinutes(at: Date, timezone: string): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
+  const parts = cachedDateTimeFormat('en-GB', {
     timeZone: timezone,
     hour: '2-digit',
     minute: '2-digit',

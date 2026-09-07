@@ -34,6 +34,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   )
   const busSpeedKphMin = validation.positiveNumber('BUS_SPEED_KPH_MIN', '5')
   const busSpeedKphMax = validation.positiveNumber('BUS_SPEED_KPH_MAX', '45')
+  const busPeakWindows = validation.peakWindows('BUS_PEAK_WINDOWS', '07:00-10:00,17:00-21:00')
+  // `isPeak` (src/sim/profile.ts) runs on every bus's every speed draw, all
+  // day - re-splitting this string on every call was measured hot. The env
+  // var still means exactly what it always has (comma-separated
+  // HH:MM-HH:MM windows); this is just that string parsed once, at boot,
+  // instead of on every call.
+  const busPeakWindowMinutes = parsePeakWindows(busPeakWindows)
   const busFixIntervalSeconds = validation.positiveNumber('BUS_FIX_INTERVAL_SECONDS', '20')
   const busFixJitterSeconds = validation.nonNegativeNumber('BUS_FIX_JITTER_SECONDS', '10')
   const busStaleAfterSeconds = validation.positiveNumber('BUS_STALE_AFTER_SECONDS', '90')
@@ -209,7 +216,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     busDwellSecondsMean: validation.nonNegativeNumber('BUS_DWELL_SECONDS_MEAN', '20'),
     busDwellSecondsSd: validation.nonNegativeNumber('BUS_DWELL_SECONDS_SD', '8'),
     busPeakSpeedFactor: validation.positiveNumber('BUS_PEAK_SPEED_FACTOR', '0.7'),
-    busPeakWindows: validation.peakWindows('BUS_PEAK_WINDOWS', '07:00-10:00,17:00-21:00'),
+    busPeakWindows,
+    busPeakWindowMinutes,
     metroCruiseKph: validation.positiveNumber('METRO_CRUISE_KPH', '60'),
     metroAccelMps2: validation.positiveNumber('METRO_ACCEL_MPS2', '1.0'),
     metroDecelMps2: validation.positiveNumber('METRO_DECEL_MPS2', '1.1'),
@@ -408,6 +416,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
 
   validation.finish()
   return result
+}
+
+/**
+ * `validation.peakWindows` already guarantees `raw` is comma-separated
+ * `HH:MM-HH:MM` windows (or the fallback is), so this mirrors that shape
+ * without re-validating it. Kept byte-for-byte equivalent to the per-call
+ * split that used to live in `src/sim/profile.ts`'s `isPeak`.
+ */
+function parsePeakWindows(raw: string): readonly { start: number; end: number }[] {
+  return raw.split(',').flatMap((window) => {
+    const [start, end] = window.split('-').map(minutesSinceMidnight)
+    return start !== undefined && end !== undefined ? [{ start, end }] : []
+  })
+}
+
+function minutesSinceMidnight(value: string): number {
+  const [hour, minute] = value.split(':').map(Number)
+  return (hour ?? 0) * 60 + (minute ?? 0)
 }
 
 class Validation {
