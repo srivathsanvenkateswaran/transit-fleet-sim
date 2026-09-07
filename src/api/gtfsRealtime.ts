@@ -214,6 +214,68 @@ export function buildFeedEntities(
   return entities
 }
 
+interface FeedEntityTickBucket {
+  readonly bucketMs: number
+  readonly byClassFilter: Map<string, readonly FeedEntity[]>
+}
+
+/**
+ * `buildFeedEntities` walks every vehicle in the registry, calling
+ * `world.observe()` and `world.scheduleUpdates()` for each one - the O(fleet)
+ * cost the audit measured at 50-110 ms per request. Two requests landing in
+ * the same simulated tick (`config.simTickMs`, 1 s by default) are asking
+ * the same question: `world.observe` is a pure function of the instant, and
+ * the world does not change between ticks, so the first request's answer is
+ * exactly what a second request in the same tick would recompute.
+ *
+ * `at` is bucketed to the tick boundary rather than used at its raw
+ * millisecond precision so that two requests a few milliseconds apart still
+ * land in the same bucket and share one computation - the actual case this
+ * exists for (`SIM_CLOCK=system` advances every millisecond, so an unbucketed
+ * key would almost never repeat). The entities passed to `buildFeedEntities`
+ * itself still carry the exact `at` of whichever request populated the
+ * bucket, so output for that bucket is identical to what that request would
+ * have produced unmemoised; a later request in the same bucket gets that
+ * same answer instead of a fresh (and, at this resolution, indistinguishable)
+ * one.
+ *
+ * Keyed on `world` first, in a `WeakMap` so a test's short-lived world/port
+ * never leaks into another test's cache - each simulated instant in this
+ * codebase's own tests is paired with a freshly constructed port
+ * (`coachWorldPort`, `busWorld`, ...), so this never collides across cases
+ * even when two tests reuse the same clock instant. Production runs one
+ * `SimWorld` for the process, so the cache actually pays off there. The
+ * per-`registry` bucket is replaced wholesale the moment a new tick's key
+ * shows up, so this never grows past a handful of entries (one per distinct
+ * `class` filter actually requested).
+ */
+const feedEntityCache = new WeakMap<WorldPort, WeakMap<FleetRegistry, FeedEntityTickBucket>>()
+
+function cachedFeedEntities(
+  world: WorldPort,
+  registry: FleetRegistry,
+  at: Date,
+  classFilter: string | null,
+): readonly FeedEntity[] {
+  const bucketMs = Math.floor(at.getTime() / config.simTickMs) * config.simTickMs
+  let byRegistry = feedEntityCache.get(world)
+  if (byRegistry === undefined) {
+    byRegistry = new WeakMap()
+    feedEntityCache.set(world, byRegistry)
+  }
+  let bucket = byRegistry.get(registry)
+  if (bucket === undefined || bucket.bucketMs !== bucketMs) {
+    bucket = { bucketMs, byClassFilter: new Map() }
+    byRegistry.set(registry, bucket)
+  }
+  const key = classFilter ?? ''
+  const cached = bucket.byClassFilter.get(key)
+  if (cached !== undefined) return cached
+  const entities = buildFeedEntities(world, registry, at, classFilter)
+  bucket.byClassFilter.set(key, entities)
+  return entities
+}
+
 /** `KSRTC Pallakki · Bengaluru - Hosapete - Hampi · 22:59` */
 function coachLabel(vehicle: FleetVehicle, corridorName: string, startTime: string): string {
   const corporation = vehicle.corporation ?? null
@@ -240,7 +302,7 @@ export function gtfsRealtimeFeed(
   classFilter: string | null,
 ): FeedResult {
   const at = world.now()
-  const entities = buildFeedEntities(world, registry, at, classFilter)
+  const entities = cachedFeedEntities(world, registry, at, classFilter)
   const writer = new ProtobufWriter()
   writer.message(1, (header) => {
     header.string(1, '2.0')
