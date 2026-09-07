@@ -18,9 +18,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const gtfsUrl = validation.optionalUrl('GTFS_URL')
   const simTimezone = validation.timezone('SIM_TIMEZONE', 'Asia/Kolkata')
   const simClock = validation.clock('SIM_CLOCK', 'system')
+  // September 2026 coverage expansion: every 500-series route, plus every
+  // route touching the seven named east/south Bengaluru places (Kundalahalli,
+  // Indiranagar, Domlur Flyover, AECS Layout Cross, Devarabisanahalli Ring
+  // Road, Agara Junction, BDA Complex HSR Layout) or running from one of them
+  // to Kempegowda Bus Station - see `scripts/build-bundle.ts`'s own doc
+  // comment for exactly how this list was resolved against Tatak's BMTC GTFS,
+  // and `data/bundle/SOURCE.md` for the bundle this filters against. Kept as
+  // an overridable env default, not a hardcoded route set, for the same
+  // reason `BUS_ROUTES` has always been one: a deployment that wants a
+  // narrower or different slice of the feed still can.
   const busRoutes = validation.list(
     'BUS_ROUTES',
-    '500-D,500-A,G-4,335-E,401-K,KIA-4,KIA-8,KIA-9,KIA-10,KIA-15',
+    '138,138 D6G-JBN,138 KBS-VSD-JBN,139,139 D6G-HLS-JBN,139 SBS-KFC-D6G,139 VSD-JBN,139-MRS-SBS,144-E D6G-KFC-NRG,171 KBS-SNCA,171-G KBS-SSP,201,201 D06G-DMR,201-G,201-G BEMLG-ELC,201-G BSK-BNM,201-G CSB-D06G,201-G CSB-JBN,201-G D6G-BSK,201-G KRM-BEMLF,201-G SGH-JBN,201-Q,201-Q D6G-CSB,201-R CSB-BEMLF,201-RB BSKTTMC-BTLQT,201-V,201-V CSB-RMN,223-A HAL-DBT,225-CA BEML5-HAL ARDC,252-A PSS-ISROM,290-G HSS-RKHN,293-BC,293-BC BTM-BGR,314,314 BEMLF-SBS-YHK,314 CLO-KBS-BEMLF,314 KBS-KFC-D06G,314 KBS-NGWP,314 SBS-NVP,314-B,314-B KBS-CVRNRG,314-B YBS-BEMLG,314-C,314-D,314-FA,314-FA D06G-MLP,314-H,314-H KBS-BEMLF,314-H MLP-SMH,314-P,314-T D06G-VBP,314-T RMN-VSD-KBS,314-T VSD-RMN,315-G,315-G CNS-DML,319-E,322,323,323 D41G-HAL-KMT,323 KMT-HAL-D41G,323-A,323-AB,323-AK,323-AK KBS-D41G,323-B,323-D,323-E,323-F,323-G,323-H,323-J,323-L,323-M,323-N,324,324-A,325,325 KBS-HAL-HRH,325-A,326-E,326-E KMT-KDG,327 KMT-HAL ARDC,327-A,327-B,327-C,327-E,327-FA,328,328-E,328-F,328-G,328-K,329,329-A,329-B,329-C,329-D,329-E,329-F,329-G,329-H,329-J,329-J SNBS-SNH,329-K,330-B,330-C,330-G,330-G SBS-MRHB-DDNK,330-H,330-M,330-P,331,331-A SBS-KDG,332,332-A,333 KBS-HALM-BEMLF,333-C,333-E,333-F,333-G,333-H,333-K,333-N,333-Q KBS-PTR,334 -EA SBS-HSK,334-B,334-E,334-E BRAB-BDG,334-E DBS-KDG,335-C,335-E,335-E KBS-HAL NP,335-E KDG-KVDRDO,335-E SNBS-KDG,335-G,335-G D31G-KDG,335-H,335-M,335-N KGR-KMT-ARDCHAL,336,336-A,338,340-A KBS-ADG-HSR 2nd,340-A KBS-ADG-HSRKEB,340-A STJN-HSRKEB,340-K,341-A,341-C,341-C KBS-KDRM,342,342 D42G-CPWD-VSD,342-A,342-A D42G-KMT,342-A KMT HRH,342-A KRMTTMC-SJP,342-B,342-C,342-E,342-F,342-F BEG-KBS,342-F KBS-D42G,342-F KRMTTMC-STJN-SJP,342-F SJBHS-SJP,342-F SJWA-SJP,342-G,342-H,342-H D42G-SJBHS,342-H STJN-GGSK,342-J,342-K,342-K KBS-ADK,342-L,342-M,342-MA,342-N KBS-KMS,342-P,342-P KMT-GNGP-JGH,342-Q,342-Q KMT-D42G,342-T,342-TA,342-U,342-V,342-W,342-WA,342-Y,342-Z,348-C,356-CW Fly,356-CW UFLY,401-K,411-A CSB-MVW-HALNPS,411-D,412,412 KLN-BRAB DMLR,412 KLN-BSK,412-H,412-H HBLB-ISRO,412-H ISRO-KLN,45-G KMK-KBS-BEMLF,500 BEML-MRTB-CSB,500 SNCS-GGP,500 YTTMC-HBLB-JKLO,500-A,500-A BSK-BELF,500-A D45G-BEMLF,500-A ISROM-HBL-MTK-YBS,500-A MRH-JKLO,500-A PPLO-HBLB,500-AD,500-BA,500-BA YTTMC-MTK-KRPGH,500-BC,500-BC YTTMC-MTK-CSB,500-C,500-C CSB-TCP,500-C KRPGH-BSK,500-C KRPGH-SJP,500-CA,500-CD,500-CD D42-TNF,500-CF,500-CF BSK-HSS,500-CF D41G-SJP-CKT,500-CH,500-CH D42G-TNF,500-CH DNK-BEG,500-CH SJP-HBL,500-CH SJR-KRP,500-CH TNF-ASP,500-CK,500-CS,500-CS D42G-CSB,500-D,500-D BELF-CSB,500-D BEML-TNF-CSB,500-D BSBI-CSB,500-D D10G-BTM,500-D D10G-CSB,500-D D10G-HBLB,500-D D10G-NGW-HBLB,500-D D10G-TNF-CSB,500-D GKVK-CSB,500-D HBLB-BTM,500-D JGS-CSB,500-D KRPRLY-SNCS,500-D MRHB-HBL-PSS,500-DC D32 SRYN-HBLB,500-DC D38G-BELF,500-DG,500-DH HSRCPWD-ATB,500-DJ,500-DM YBS-HBL-ELCW,500-DP DNK-GGP,500-EB,500-EB ELC-HBL,500-EB ELCW-WTF-KDG,500-EB NJP-TNF,500-EB SMVR-ELCW,500-F,500-FB,500-FB CSB-HSK,500-HC,500-HC HBLB-WTTMC,500-HG,500-HG HSK-BELF,500-HK,500-J,500-L,500-L BSK-KRPGH,500-L BSK-TNF-D6G,500-L BSK-TNF-KRPGH,500-L CSB-BEML,500-LA,500-Q,500-Q D10G-TNF-KRPGH,500-Q MDR-CJP,500-QA,500-QA YTTMC-GGP-KRPGH,500-QB,500-QD,500-QD YBS-CSB,500-QG,500-QG KRPGH-BELF,500-QG PSB-GGP-KRP,500-QG PTH-HBL-KRPGH,500-QK,500-QK BBD-KDG,500-QN,500-QP,500-TA,501-CD,501-CD DPJN-NDH-CSB,503-A,503-A VRP-BSK,505 TNF-KKH-VRK,506,BEML-BGR,BEML5-BEMLG,CHAKRA-16,CHAKRA-16A,D06G-MNK,D06G-MRS,D25-HSRBDA,D25G-HSRBDA,D6G-CVRN,D6G-SOQ,G-2,G-2 ATO-SJP,G-2 CHM-SJP,G-2 D06G-JN SJP,G-2 KBS-MYH-SJP,G-2 SBS-SJP,G-2 SJP-KVS,G-4,HSR FDR-1,HSR FDR-1A,IMD-CSB,K-3,KBS-1I,KBS-1I BEMLF-KDG,KBS-1I D06G-LIDO-KDG,KBS-1K,KBS-1K KBS-D41G,KBS-1K KBS-VSD-D41G,KIA-10,KIA-15,KIA-15A,KIA-4,KIA-4A,KIA-7,KIA-7A,KIA-7A D25G-KIA,KIA-8,KIA-8A,KIA-8C,KIA-8D,KIA-8E,KIA-8EW,KIA-8H,KIA-9,KRM-BEMLG,KRM-CPWD,MBS-6 YST-CVRN,MF-1F,MF-1F D6G-RMN,MF-22E,MF-22E KRMTTMC-HRMS,MF-22EA,MF-22ET D38G-TNF,MF-3,MF-3A,MF-4A,MF-5,MF-5 SMVT-BSK,MF-6,MF-6 D06G-CSB,MF-6 JBN-SVMS,MF-9 MRH-D24G,SBS-1K,SBS-1K SBS-D41G,SBS-HAL-BEMLG,V-331A,V-333E,V-335E,V-342F,V-342F D25G-KBS,V-500A,V-500A D13G-BSK-HBL,V-500BC,V-500CA,V-500CA KMK-BSK-ITPL,V-500CK,V-500D,V-500DP,V-500E,V-500E ELCKIA-HBLB,V-500F,V-500FA,V-500HS,V-500L,V-505 ELCW-KDG FLY,V-DIVYA DARSHANA-1B,V-MF1C,V-MF1C BSK-KRPMS,V-MF1D,V-MF1D ELC-KRPMS,V-MF6,VW-226HSR,WTTMC-KDLG-VRTKD',
   )
   const busSpeedKphMin = validation.positiveNumber('BUS_SPEED_KPH_MIN', '5')
   const busSpeedKphMax = validation.positiveNumber('BUS_SPEED_KPH_MAX', '45')
@@ -36,6 +46,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const dutyOutOfServiceShare = validation.share('DUTY_OUT_OF_SERVICE_SHARE', '0.05')
   const dutyInferredConfidenceMin = validation.share('DUTY_INFERRED_CONFIDENCE_MIN', '0.55')
   const dutyInferredConfidenceMax = validation.share('DUTY_INFERRED_CONFIDENCE_MAX', '0.95')
+  // docs/intercity-coaches.md §12.2-§12.8. Every one of these is read only
+  // when `INTERCITY_CORRIDORS` is set; they are parsed unconditionally so a
+  // typo fails startup rather than waiting for the first coach.
+  const intercityStaleAfterSeconds = validation.positiveNumber('INTERCITY_STALE_AFTER_SECONDS', '180')
+  const intercityDarkAfterSeconds = validation.positiveNumber('INTERCITY_DARK_AFTER_SECONDS', '600')
+  const intercityFixIntervalSeconds = validation.positiveNumber('INTERCITY_FIX_INTERVAL_SECONDS', '30')
+  const intercityFixIntervalStationarySeconds = validation.positiveNumber(
+    'INTERCITY_FIX_INTERVAL_STATIONARY_SECONDS',
+    '120',
+  )
+  const intercityFixJitterSeconds = validation.nonNegativeNumber('INTERCITY_FIX_JITTER_SECONDS', '8')
+  const intercityCoverageShareReserved = validation.share('INTERCITY_COVERAGE_SHARE__RESERVED', '0.92')
+  const intercityCoverageShareOrdinary = validation.share('INTERCITY_COVERAGE_SHARE__ORDINARY', '0.70')
+  const intercityCruiseKphMin = validation.positiveNumber('INTERCITY_CRUISE_KPH_MIN', '30')
+  const intercityCruiseKphMax = validation.positiveNumber('INTERCITY_CRUISE_KPH_MAX', '85')
+  const intercityDutyConfirmedShare = validation.share('INTERCITY_DUTY_CONFIRMED_SHARE', '0.80')
+  const intercityDutyInferredShare = validation.share('INTERCITY_DUTY_INFERRED_SHARE', '0.15')
+  const intercityDutyUnknownShare = validation.share('INTERCITY_DUTY_UNKNOWN_SHARE', '0.03')
+  const intercityDutyOutOfServiceShare = validation.share('INTERCITY_DUTY_OUT_OF_SERVICE_SHARE', '0.02')
 
   if (gtfsSource === 'path' && gtfsPathRaw === null) {
     validation.issue('GTFS_PATH is required when GTFS_SOURCE=path')
@@ -65,6 +94,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (dutyInferredConfidenceMin > dutyInferredConfidenceMax) {
     validation.issue('DUTY_INFERRED_CONFIDENCE_MIN must not exceed DUTY_INFERRED_CONFIDENCE_MAX')
   }
+  if (intercityStaleAfterSeconds >= intercityDarkAfterSeconds) {
+    validation.issue('INTERCITY_STALE_AFTER_SECONDS must be less than INTERCITY_DARK_AFTER_SECONDS')
+  }
+  if (intercityFixJitterSeconds >= intercityFixIntervalSeconds) {
+    validation.issue('INTERCITY_FIX_JITTER_SECONDS must be less than INTERCITY_FIX_INTERVAL_SECONDS')
+  }
+  if (intercityFixIntervalStationarySeconds < intercityFixIntervalSeconds) {
+    validation.issue(
+      'INTERCITY_FIX_INTERVAL_STATIONARY_SECONDS must not be shorter than INTERCITY_FIX_INTERVAL_SECONDS',
+    )
+  }
+  if (intercityCruiseKphMin > intercityCruiseKphMax) {
+    validation.issue('INTERCITY_CRUISE_KPH_MIN must not exceed INTERCITY_CRUISE_KPH_MAX')
+  }
+  // §12.5: the four intercity duty shares must sum to 1.0 within 1e-6 or
+  // startup fails, naming all four and the sum - the same rule the bus shares
+  // already carry, restated because these are a separate set with separate
+  // defaults (confirmed 0.80 against the bus's 0.60).
+  const intercityDutyShareTotal =
+    intercityDutyConfirmedShare +
+    intercityDutyInferredShare +
+    intercityDutyUnknownShare +
+    intercityDutyOutOfServiceShare
+  if (Math.abs(intercityDutyShareTotal - 1) > 1e-6) {
+    validation.issue(
+      `Intercity duty shares must sum to 1.0; confirmed=${intercityDutyConfirmedShare}, inferred=${intercityDutyInferredShare}, unknown=${intercityDutyUnknownShare}, out_of_service=${intercityDutyOutOfServiceShare}, sum=${intercityDutyShareTotal}`,
+    )
+  }
 
   const result = {
     port,
@@ -86,6 +143,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
 
     busRoutes,
     busesPerRoute: validation.positiveInteger('BUSES_PER_ROUTE', '6'),
+    // `computeRouteRosterSizes` (src/sim/busRoster.ts) replaces this flat
+    // count with a per-route figure read off each route's own real GTFS
+    // trips - a minimum-vehicles-to-cover-the-timetable computation, not a
+    // guess. `busesPerRoute` above still applies wherever that computation
+    // cannot run (a caller that builds a fleet without loading GTFS first),
+    // so nothing here removes the flat knob, only adds a better default path
+    // on top of it. `busRosterScale` is the one dial on the result: a route
+    // whose honest minimum is, say, four vehicles becomes eight at scale 2 or
+    // two at scale 0.5, always still floored at `busRosterMinPerRoute`.
+    busRosterScale: validation.positiveNumber('BUS_ROSTER_SCALE', '1'),
+    busRosterMinPerRoute: validation.positiveInteger('BUS_ROSTER_MIN_PER_ROUTE', '1'),
     busHubCode: validation.hubCode('BUS_HUB_CODE', 'BLR'),
     busHubName: 'Bengaluru Central',
     busTerminalLayoverSeconds: validation.nonNegativeNumber(
@@ -208,6 +276,134 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       'METRO_MAX_STATION_GAP_METRES',
       '4000',
     ),
+
+    // docs/intercity-coaches.md §12.1. Unset means no coaches at all (§14.1) -
+    // this is the one config surface built in this pass whose entire job is
+    // to stay off by default, because the consuming app's client rejects an
+    // unknown vehicle class until it is released separately from this one.
+    intercityCorridors: validation.optionalList('INTERCITY_CORRIDORS'),
+    intercityTopologyPath: resolve(
+      validation.nonEmpty('INTERCITY_TOPOLOGY_PATH', './data/bundle/corridor-topology.json'),
+    ),
+    // BJP, BDM, BGK and KWR added alongside the bidirectional-roster coverage
+    // pass: a `reverse` departure on BNG-BJP, BNG-BDM, BNG-BGK or MNG-KWR
+    // originates at the corridor's other end, which needed its own hub - see
+    // FIXTURE_HUBS in src/fleet/corporation.ts.
+    intercityHubCodes: validation.hubCodeList(
+      'INTERCITY_HUB_CODES',
+      'KBS,MYS,MDK,HUB,HSP,MNG,CKM,UDP,DND,BJP,BDM,BGK,KWR',
+    ),
+    intercityServiceClasses: validation.list(
+      'INTERCITY_SERVICE_CLASSES',
+      'karnataka_sarige,rajahamsa_executive,airavat,airavat_club_class,ambaari_utsav,pallakki',
+    ),
+    intercityRosterPath: resolve(
+      validation.nonEmpty('INTERCITY_ROSTER_PATH', './data/bundle/corridor-roster.json'),
+    ),
+    // §12.1: service days held at once. Must be at least 2 for a duty that
+    // crosses midnight - a window of one day cannot contain both the service
+    // date a coach departed on and the calendar day it arrives on.
+    intercityRosterDays: validation.rosterDays('INTERCITY_ROSTER_DAYS', '3'),
+    intercityAssignmentHorizonHours: validation.positiveNumber(
+      'INTERCITY_ASSIGNMENT_HORIZON_HOURS',
+      '36',
+    ),
+
+    // §12.2
+    intercityCoverageShareReserved,
+    intercityCoverageShareOrdinary,
+    intercityFixIntervalSeconds,
+    intercityFixIntervalStationarySeconds,
+    intercityFixJitterSeconds,
+    intercityStaleAfterSeconds,
+    intercityDarkAfterSeconds,
+    intercityGpsNoiseMetres: validation.nonNegativeNumber('INTERCITY_GPS_NOISE_METRES', '12'),
+
+    // §12.3. The four zone-placement variables are deliberately absent: §12.3
+    // marks them "Build-time; the zones are written into the topology", and
+    // `scripts/build-corridors.ts` carries them as its own constants. A
+    // runtime knob for them would let a deployment move a dead zone that is
+    // already committed to a geometry file and validated by the gate.
+    intercityDeadZoneUncertaintyMultiplier: validation.positiveNumber(
+      'INTERCITY_DEAD_ZONE_UNCERTAINTY_MULTIPLIER',
+      '2.5',
+    ),
+    intercityUrbanDropoutRatePerHour: validation.nonNegativeNumber(
+      'INTERCITY_URBAN_DROPOUT_RATE_PER_HOUR',
+      '1.5',
+    ),
+
+    // §12.4
+    intercityBoardingSecondsMean: validation.nonNegativeNumber('INTERCITY_BOARDING_SECONDS_MEAN', '180'),
+    intercityBoardingSecondsSd: validation.positiveNumber('INTERCITY_BOARDING_SECONDS_SD', '60'),
+    intercityStandSecondsMean: validation.nonNegativeNumber('INTERCITY_STAND_SECONDS_MEAN', '420'),
+    intercityStandSecondsSd: validation.positiveNumber('INTERCITY_STAND_SECONDS_SD', '180'),
+    intercityHaltSecondsMean: validation.nonNegativeNumber('INTERCITY_HALT_SECONDS_MEAN', '1800'),
+    intercityHaltSecondsSd: validation.positiveNumber('INTERCITY_HALT_SECONDS_SD', '420'),
+    intercityCrewChangeSecondsMean: validation.nonNegativeNumber(
+      'INTERCITY_CREW_CHANGE_SECONDS_MEAN',
+      '420',
+    ),
+    intercityCrewChangeSecondsSd: validation.positiveNumber('INTERCITY_CREW_CHANGE_SECONDS_SD', '120'),
+
+    // §12.5
+    intercityDutyConfirmedShare,
+    intercityDutyInferredShare,
+    intercityDutyUnknownShare,
+    intercityDutyOutOfServiceShare,
+    intercityVehicleSubstitutionRatePerDuty: validation.share(
+      'INTERCITY_VEHICLE_SUBSTITUTION_RATE_PER_DUTY',
+      '0.06',
+    ),
+
+    // §12.6
+    intercityCruiseKphMean: validation.positiveNumber('INTERCITY_CRUISE_KPH_MEAN', '62'),
+    intercityCruiseKphSd: validation.nonNegativeNumber('INTERCITY_CRUISE_KPH_SD', '8'),
+    intercityCruiseKphMin,
+    intercityCruiseKphMax,
+    intercityUrbanKphMean: validation.positiveNumber('INTERCITY_URBAN_KPH_MEAN', '17'),
+    intercityUrbanKphSd: validation.nonNegativeNumber('INTERCITY_URBAN_KPH_SD', '4'),
+
+    // §12.7
+    intercityUncertaintyBaseSeconds: validation.positiveNumber(
+      'INTERCITY_UNCERTAINTY_BASE_SECONDS',
+      '120',
+    ),
+    intercityUncertaintyPerHighwayKmSeconds: validation.positiveNumber(
+      'INTERCITY_UNCERTAINTY_PER_HIGHWAY_KM_SECONDS',
+      '1.5',
+    ),
+    intercityUncertaintyPerHaltSeconds: validation.positiveNumber(
+      'INTERCITY_UNCERTAINTY_PER_HALT_SECONDS',
+      '420',
+    ),
+    intercityUncertaintyUrbanApproachSeconds: validation.nonNegativeNumber(
+      'INTERCITY_UNCERTAINTY_URBAN_APPROACH_SECONDS',
+      '600',
+    ),
+    intercityPredictionHorizonSeconds: validation.positiveInteger(
+      'INTERCITY_PREDICTION_HORIZON_SECONDS',
+      '21600',
+    ),
+    intercitySuggestedPollSeconds: validation.positiveInteger('INTERCITY_SUGGESTED_POLL_SECONDS', '120'),
+
+    // §12.8. `MANIFEST_TOKEN` is deliberately a different credential from
+    // `ADMIN_TOKEN` (§10.5): the BPP is a peer service, not an operator of
+    // this one, and one shared credential would let a ticketing platform
+    // force a coach dark. Unset means `404`, not `401`.
+    manifestToken: validation.optional('MANIFEST_TOKEN'),
+    intercityManifestMaxAgeSeconds: validation.positiveInteger(
+      'INTERCITY_MANIFEST_MAX_AGE_SECONDS',
+      '3600',
+    ),
+    intercityManifestTtlMaxSeconds: validation.positiveInteger(
+      'INTERCITY_MANIFEST_TTL_MAX_SECONDS',
+      '86400',
+    ),
+    intercityProgressLogMaxEntries: validation.positiveInteger(
+      'INTERCITY_PROGRESS_LOG_MAX_ENTRIES',
+      '40',
+    ),
   } as const
 
   validation.finish()
@@ -326,6 +522,47 @@ class Validation {
     if (/^[A-HJ-NP-Z]{3}$/.test(value)) return value
     this.issue(`${name} must be three letters without I or O, got ${JSON.stringify(raw)}`)
     return fallback
+  }
+
+  /**
+   * §14.1: unset means the feature is off, which `list()` cannot express -
+   * it requires at least one value and falls back to a non-empty default
+   * when the variable is missing. `INTERCITY_CORRIDORS` unset must mean "no
+   * coaches at all", so an empty list is the valid, default answer here.
+   */
+  optionalList(name: string): readonly string[] {
+    const raw = this.optional(name)
+    if (raw === null) return []
+    return raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+  }
+
+  /**
+   * §12.1: "Must be at least 2 for a duty that crosses midnight." A one-day
+   * roster window cannot hold both the service date a coach departed on and
+   * the calendar day it arrives on, so a coach dispatched at 22:59 would fall
+   * out of the roster at midnight while still on the road.
+   */
+  rosterDays(name: string, fallback: string): number {
+    const value = this.integer(name, fallback)
+    if (Number.isSafeInteger(value) && value >= 2) return value
+    this.issue(
+      `${name} must be an integer of at least 2 (a cross-midnight duty needs two service days), got ${JSON.stringify(this.raw(name, fallback))}`,
+    )
+    return Number(fallback)
+  }
+
+  /** §2.3/§12.1: a comma-separated list of three-letter hub codes, none containing I or O. */
+  hubCodeList(name: string, fallback: string): readonly string[] {
+    const values = this.list(name, fallback)
+    const bad = values.filter((value) => !/^[A-HJ-NP-Z]{3}$/.test(value.toUpperCase()))
+    if (bad.length > 0) {
+      this.issue(`${name} must list three-letter hub codes without I or O; invalid: ${bad.join(', ')}`)
+      return fallback.split(',')
+    }
+    return values.map((value) => value.toUpperCase())
   }
 
   url(name: string, fallback: string): string {

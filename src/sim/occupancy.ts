@@ -72,7 +72,66 @@ export interface OccupancyInput {
   readonly at: Date
   /** Distinguishes successive laps by the same bus. Any stable per-trip value. */
   readonly tripStartedAtMs: number
+  /**
+   * A property of the duty being served, never of the vehicle class -
+   * docs/intercity-coaches.md §7.3: "The reserved branch is a branch on the
+   * duty, not on the vehicle class... `input.reservation` is a property of
+   * the duty being served, so the existing regex [the vehicle-class boundary
+   * test] does not fire and, more importantly, should not: reservation is the
+   * correct axis and the class is not." `null` for a bus and for an
+   * unreserved intercity duty (Karnataka Sarige); `{ required: true }` for a
+   * reserved one (Pallakki, Airavat, ...). This is deliberately the *only*
+   * fact about the duty's reservation this function is given - no manifest,
+   * no seat count. §7.3 again: "The manifest is a separate object on the duty
+   * and never reaches this function at all. Keeping the two apart in the type
+   * system is what stops a later change from 'improving' the refusal by
+   * feeding a booking count into an occupancy field." There is nowhere on
+   * this type for one to arrive by accident.
+   */
+  readonly reservation: { readonly required: boolean } | null
+  /**
+   * docs/intercity-coaches.md §3.7: "The demand curve is a city curve...
+   * At 02:00 on a corridor it returns the floor for a coach that is genuinely
+   * full of sleeping passengers." For a reserved duty §7 makes that moot by
+   * refusing to run the model at all; for an unreserved intercity duty
+   * (Karnataka Sarige) the two-peak commuter shape is replaced with a
+   * long-distance one.
+   *
+   * Like `reservation`, this is a property of the duty being served and not
+   * of the vehicle class - a `KIA-*` airport coach is a bus running a city
+   * duty and keeps the city curve. Open question 11 records that neither
+   * shape is fitted to anything, and §17.2 marks both `modelled`.
+   */
+  readonly longDistance?: boolean
 }
+
+/**
+ * What `occupancyFor` decided, before it is turned into wire shape.
+ *
+ * `withheld` carries no number for anything to serialise - not a percentage,
+ * not a status pulled from the ladder, nothing. That is deliberate and it is
+ * the whole point: docs/intercity-coaches.md §7.3 requires the refusal to be
+ * structural rather than a check at the response projector, and the cheapest
+ * place to make a rule un-routable-around is the type system. An arm that
+ * *could* carry a measured figure would be an invitation for a later change
+ * to fill it in "just this once"; an arm that structurally cannot has nothing
+ * to fill in. `projectOccupancy` is the one place this gets turned into (or
+ * out of) `VehicleObservation.occupancy`, and every caller goes through it.
+ */
+export type OccupancyOutcome =
+  | { readonly kind: 'modelled'; readonly observation: OccupancyObservation }
+  | {
+      readonly kind: 'withheld'
+      /**
+       * `reserved_no_onboard_count`: a reserved duty, manifest or no
+       * manifest - §7.2, the rule with no exceptions.
+       * `not_reporting`: the existing dark/untracked short-circuit, unified
+       * under the same outcome type so a bus's `NO_DATA_AVAILABLE` and a
+       * coach's silence are visibly two instances of one shape rather than
+       * two unrelated mechanisms that happen to both omit a number.
+       */
+      readonly reason: 'reserved_no_onboard_count' | 'not_reporting'
+    }
 
 /** A whole-route demand hump is centred here; sigma controls how sharply it falls off. */
 const CENTRE_SIGMA = 0.22
@@ -93,17 +152,48 @@ const DEMAND_SCALE = 0.62
 export function occupancyFor(
   input: OccupancyInput,
   profile: BusOccupancyProfile = defaultBusOccupancyProfile,
-): OccupancyObservation {
+): OccupancyOutcome {
+  // docs/intercity-coaches.md §7.2-7.3: a reserved duty's load is somebody
+  // else's fact - a manifest a booking system holds, not a headcount this
+  // service could ever take. The refusal is checked first, unconditionally,
+  // regardless of `trackingState`: a reserved coach that is `live` gets the
+  // same refusal as one that is `dark`, because tracking has nothing to do
+  // with why this is withheld. Nothing below this line runs for a reserved
+  // duty - not `headcountFor`, not the demand curve, nothing - which is what
+  // "before any demand-model function is called" means as a property of the
+  // code rather than as a comment about it.
+  if (input.reservation?.required === true) {
+    return { kind: 'withheld', reason: 'reserved_no_onboard_count' }
+  }
   // The honesty rule (docs/prompts/fleet-sim-02-vehicle-occupancy.md): a dark
   // or untracked vehicle gets no occupancy at all, not a zero. Not knowing
   // where a bus is and not knowing how full it is are the same ignorance.
   if (input.trackingState === 'dark' || input.trackingState === 'untracked') {
-    return { status: 'NO_DATA_AVAILABLE' }
+    return { kind: 'withheld', reason: 'not_reporting' }
   }
   const { headcount, seatedCapacity, designCapacity } = headcountFor(input, profile)
   const status = statusFor(headcount, seatedCapacity, designCapacity)
   const percentage = clamp(Math.round((headcount / designCapacity) * 100), 0, 100)
-  return { status, percentage }
+  return { kind: 'modelled', observation: { status, percentage } }
+}
+
+/**
+ * Turns an `OccupancyOutcome` into the wire shape, or into nothing at all.
+ *
+ * This is the single place a caller reaches to fill in
+ * `VehicleObservation.occupancy`, and it is deliberately the only place: a
+ * reserved duty's `withheld` never becomes `NO_DATA_AVAILABLE` here, it
+ * becomes `undefined`, and `undefined` is what makes the property vanish from
+ * the response rather than survive as a key with an honest-looking value
+ * (docs/intercity-coaches.md §7.2's "omission, not `NO_DATA_AVAILABLE`").
+ * `not_reporting` still becomes `NO_DATA_AVAILABLE`, unchanged from the
+ * bus/metro behaviour this replaces, so every existing golden stays
+ * byte-identical.
+ */
+export function projectOccupancy(outcome: OccupancyOutcome): OccupancyObservation | undefined {
+  if (outcome.kind === 'modelled') return outcome.observation
+  if (outcome.reason === 'not_reporting') return { status: 'NO_DATA_AVAILABLE' }
+  return undefined
 }
 
 function headcountFor(
@@ -122,7 +212,7 @@ function headcountFor(
   const centre = centreFraction(profile.seed, input.routeId, input.directionId)
   const combined =
     DEMAND_SCALE *
-    timeOfDayFactor(minutes) *
+    (input.longDistance === true ? longDistanceTimeOfDayFactor(minutes) : timeOfDayFactor(minutes)) *
     directionFactor(minutes, input.directionId) *
     routeBaseFactor(profile.seed, input.routeId) *
     tripJitterFactor(profile.seed, input.bin, input.tripStartedAtMs)
@@ -161,6 +251,27 @@ function timeOfDayFactor(minutes: number): number {
   const evening = 0.9 * gaussian(minutes, 18 * 60 + 15, 75)
   const midday = 0.22 * gaussian(minutes, 13 * 60, 180)
   return clamp(baseline + morning + evening + midday, 0.04, 1)
+}
+
+/**
+ * The long-distance replacement for the two-peak commuter curve.
+ *
+ * An intercity run does not empty overnight: the overnight departure is the
+ * one people choose, and a coach at 02:00 is full of sleeping passengers
+ * rather than sitting on the city model's floor. So this is a broad plateau
+ * with a modest evening-departure rise and a shallow trough in the small
+ * hours of the *afternoon* trade, rather than a morning and evening rush.
+ *
+ * It is no more fitted to ridership data than the city curve is - §17.2 and
+ * open question 11 both say so - and it is marked `modelled` on the wire for
+ * the same reason. What it is not is *wrong in a way anyone can see*: the
+ * city curve reporting a near-empty overnight sleeper was.
+ */
+function longDistanceTimeOfDayFactor(minutes: number): number {
+  const plateau = 0.55
+  const eveningDeparture = 0.3 * gaussian(minutes, 21 * 60, 210)
+  const morningArrival = 0.15 * gaussian(minutes, 7 * 60, 180)
+  return clamp(plateau + eveningDeparture + morningArrival, 0.4, 1)
 }
 
 /**

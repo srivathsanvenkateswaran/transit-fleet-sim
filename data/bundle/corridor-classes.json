@@ -1,0 +1,90 @@
+[
+  {
+    "id": "karnataka_sarige",
+    "name": "Karnataka Sarige",
+    "reserved": false,
+    "ac": false,
+    "layout": "3+2",
+    "berths": false,
+    "capacity": 62,
+    "capacitySource": "secondary",
+    "corporations": [
+      "KSRTC",
+      "NWKRTC",
+      "KKRTC"
+    ]
+  },
+  {
+    "id": "rajahamsa_executive",
+    "name": "Rajahamsa Executive",
+    "reserved": true,
+    "ac": false,
+    "layout": "2+2",
+    "berths": false,
+    "capacity": 45,
+    "capacitySource": "secondary",
+    "corporations": [
+      "KSRTC",
+      "NWKRTC",
+      "KKRTC"
+    ]
+  },
+  {
+    "id": "airavat",
+    "name": "Airavat",
+    "reserved": true,
+    "ac": true,
+    "layout": "2+2",
+    "berths": false,
+    "capacity": 41,
+    "capacitySource": "secondary",
+    "corporations": [
+      "KSRTC",
+      "NWKRTC",
+      "KKRTC"
+    ]
+  },
+  {
+    "id": "airavat_club_class",
+    "name": "Airavat Club Class",
+    "reserved": true,
+    "ac": true,
+    "layout": "2+2",
+    "berths": true,
+    "capacity": 53,
+    "capacitySource": "secondary",
+    "corporations": [
+      "KSRTC",
+      "NWKRTC",
+      "KKRTC"
+    ]
+  },
+  {
+    "id": "ambaari_utsav",
+    "name": "Ambaari Utsav",
+    "reserved": true,
+    "ac": true,
+    "layout": "2+1",
+    "berths": true,
+    "capacity": 40,
+    "capacitySource": "secondary",
+    "corporations": [
+      "KSRTC"
+    ]
+  },
+  {
+    "id": "pallakki",
+    "name": "Pallakki",
+    "reserved": true,
+    "ac": false,
+    "layout": "2+1",
+    "berths": true,
+    "capacity": 30,
+    "capacitySource": "secondary",
+    "corporations": [
+      "KSRTC",
+      "NWKRTC",
+      "KKRTC"
+    ]
+  }
+]

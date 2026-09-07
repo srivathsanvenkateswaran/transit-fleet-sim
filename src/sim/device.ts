@@ -77,9 +77,18 @@ export function updateDevice(
   at: Date,
   capture: (fixSequence: number) => FixSnapshot,
   profile: BusDeviceProfile = defaultBusDeviceProfile,
+  // docs/intercity-coaches.md §3.6: the Poisson dropout process must bucket
+  // on simulated elapsed time, not on wall-clock time - see the identical
+  // note on `maybeSwapDuty` in duty.ts. `at` still times every fix this
+  // function actually records (`observedAt`, `nextFixAtMs`): a device takes
+  // a fix in real time regardless of how fast the world is simulating
+  // distance, and only the seeded dropout draw's bucket key moves to the
+  // simulated clock. Defaults to `at`, so a caller that never passes the two
+  // apart (every existing bus test) sees no change at all.
+  dropoutBucketAt: Date = at,
 ): void {
   if (!state.hasDevice) return
-  const dropping = activeDropout(profile, state.bin, at)
+  const dropping = activeDropout(profile, state.bin, dropoutBucketAt)
   const recovered = state.dropoutActive && !dropping
   state.dropoutActive = dropping
   if (dropping) return
@@ -159,6 +168,18 @@ export function addGpsNoise(
 function nextIntervalSeconds(profile: BusDeviceProfile, bin: string, sequence: number): number {
   const jitter = (rand(profile.seed, bin, 'fix_jitter', sequence) * 2 - 1) * profile.fixJitterSeconds
   return Math.max(0.001, profile.fixIntervalSeconds + jitter)
+}
+
+/**
+ * The city dropout process, exported so the intercity model can run exactly
+ * this - not a reimplementation of it - on a corridor's urban segments.
+ * docs/intercity-coaches.md §6.3: "The urban dropout process still runs on
+ * the urban segments. The first 25 km out of Bengaluru and the last 20 km
+ * into Hosapete are a city bus's problem and get a city bus's failure mode.
+ * Both mechanisms run on the same corridor, on different parts of it."
+ */
+export function poissonDropoutActive(profile: BusDeviceProfile, bin: string, at: Date): boolean {
+  return activeDropout(profile, bin, at)
 }
 
 function activeDropout(profile: BusDeviceProfile, bin: string, at: Date): boolean {

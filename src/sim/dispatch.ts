@@ -2,6 +2,7 @@ import type { GtfsRoute, GtfsTrip, LoadedGtfs } from '../geometry/loadGtfs.js'
 import type { FleetMember } from '../world/port.js'
 import { createCursor, type BusCursor } from './cursor.js'
 import type { BusMotionProfile } from './profile.js'
+import { serviceDate } from './serviceDate.js'
 
 export interface ActiveBus {
   readonly member: FleetMember
@@ -9,6 +10,21 @@ export interface ActiveBus {
   trip: GtfsTrip
   cursor: BusCursor
   tripStartedAt: Date
+  /**
+   * docs/intercity-coaches.md §3.2: a GTFS service date is not the calendar
+   * date of a start instant - a trip starting at 00:30 can belong to the
+   * *previous* service date - so it must be an explicit field set once, at
+   * the moment a trip genuinely starts, and carried from there rather than
+   * recomputed from `tripStartedAt` wherever it is needed. For today's bus
+   * model, where every trip starts well inside daytime service and no roster
+   * disagrees with the naive calendar date, computing it at dispatch (here)
+   * and at each turnaround (`SimWorld.advanceBus`) produces the same string
+   * a fresh `serviceDate(tripStartedAt, ...)` call always did - this is a
+   * wiring fix, not a behaviour change, and `tests/sim/world.test.ts`'s
+   * existing goldens are what prove that. A future roster-authored duty
+   * assigns this field from its own data instead of deriving it at all.
+   */
+  serviceDate: string
 }
 
 export function dispatchInitialFleet(
@@ -45,15 +61,42 @@ export function dispatchInitialFleet(
         trip,
         cursor: createCursor(trip, distance, profile, member.bin, at),
         tripStartedAt: at,
+        serviceDate: serviceDate(at, profile.timezone),
       })
     }
   }
   return active
 }
 
+/**
+ * The trip a looping bus treats as "the route" in a given direction: the one
+ * with the most stop times, not merely the first one GTFS happened to list.
+ *
+ * The September 2026 coverage expansion pulled in several hundred more
+ * community-feed routes than the original ten, and that feed has real data
+ * gaps at that scale - a small share of trips (well under 1% in the bundled
+ * set) carry only one stop time or none, an artefact of the source rather
+ * than anything this project generated. `Array.prototype.find` would have
+ * been content to hand one of those to every bus on the route for the rest
+ * of the simulation's life; picking the fullest-formed trip instead means a
+ * sparse feed row for one trip cannot degrade the route's entire
+ * represented shape. Ties (most routes still have exactly one trip per
+ * direction) fall back to trip id order, which is what made every existing
+ * ten-route golden byte-identical to before this changed.
+ */
 export function representativeTrip(route: GtfsRoute, directionId: 0 | 1): GtfsTrip {
-  const exact = route.trips.find((trip) => trip.directionId === directionId)
-  const fallback = route.trips[0]
-  if (exact === undefined && fallback === undefined) throw new Error(`Route ${route.number} has no trips`)
-  return exact ?? fallback!
+  const inDirection = route.trips.filter((trip) => trip.directionId === directionId)
+  const best = fullestTrip(inDirection.length > 0 ? inDirection : route.trips)
+  if (best === undefined) throw new Error(`Route ${route.number} has no trips`)
+  return best
+}
+
+function fullestTrip(trips: readonly GtfsTrip[]): GtfsTrip | undefined {
+  return trips.reduce<GtfsTrip | undefined>((current, candidate) => {
+    if (current === undefined) return candidate
+    if (candidate.stops.length !== current.stops.length) {
+      return candidate.stops.length > current.stops.length ? candidate : current
+    }
+    return candidate.id < current.id ? candidate : current
+  }, undefined)
 }

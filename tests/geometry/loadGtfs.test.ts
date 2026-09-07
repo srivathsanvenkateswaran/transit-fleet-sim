@@ -7,23 +7,55 @@ import AdmZip from 'adm-zip'
 import { describe, expect, it } from 'vitest'
 import { loadGtfs } from '../../src/geometry/loadGtfs.js'
 
+const ORIGINAL_TEN_ROUTES = [
+  '335-E',
+  '401-K',
+  '500-A',
+  '500-D',
+  'G-4',
+  'KIA-10',
+  'KIA-15',
+  'KIA-4',
+  'KIA-8',
+  'KIA-9',
+] as const
+
 describe('GTFS loader', () => {
-  it('loads all ten routes from the committed bundle without a network call', async () => {
-    const loaded = await loadGtfs({ source: 'bundled' })
-    expect([...loaded.routes.values()].map((route) => route.number).sort()).toEqual([
-      '335-E',
-      '401-K',
-      '500-A',
-      '500-D',
-      'G-4',
-      'KIA-10',
-      'KIA-15',
-      'KIA-4',
-      'KIA-8',
-      'KIA-9',
-    ])
+  // `BUS_ROUTES`'s default used to be exactly these ten - the whole bundle,
+  // before the September 2026 coverage expansion widened the bundled feed to
+  // several hundred routes and moved the ten-route case behind an explicit
+  // `routeNumbers` filter. This premise ("the default bundle load is these
+  // ten") is what changed; the loader's own filtering mechanics have not, and
+  // this test still exercises exactly them.
+  it('loads a requested subset of routes from the committed bundle without a network call', async () => {
+    const loaded = await loadGtfs({ source: 'bundled', routeNumbers: ORIGINAL_TEN_ROUTES })
+    expect([...loaded.routes.values()].map((route) => route.number).sort()).toEqual([...ORIGINAL_TEN_ROUTES].sort())
     expect(loaded.shapes.size).toBe(20)
     expect(loaded.trips.size).toBeGreaterThan(700)
+    expect([...loaded.shapes.values()].every((shape) => shape.distanceSource === 'shape_dist_traveled')).toBe(true)
+    expect([...loaded.stops.values()].some((stop) => stop.nameLocal !== null)).toBe(true)
+  }, 20_000)
+
+  // The default coverage itself: every 500-series route plus every route
+  // touching the seven named east/south Bengaluru places, or running from one
+  // of them to Kempegowda Bus Station (scripts/build-bundle.ts's doc comment
+  // has the exact resolution). This is the "the tracker isn't broken, the
+  // route just wasn't bundled" fix - asserted here as "the default load
+  // actually reaches several hundred routes and still contains every one of
+  // the original ten", not as a literal list of all ~390 short names, which
+  // would just be `scripts/build-bundle.ts`'s own `DEFAULT_ROUTES` copy-pasted
+  // and prove nothing a change to both files in lockstep couldn't hide.
+  it('loads the full default city-bus coverage from the committed bundle without a network call', async () => {
+    const loaded = await loadGtfs({ source: 'bundled' })
+    const numbers = new Set([...loaded.routes.values()].map((route) => route.number))
+    expect(numbers.size).toBeGreaterThan(300)
+    for (const route of ORIGINAL_TEN_ROUTES) expect(numbers.has(route)).toBe(true)
+    // A named place from the coverage brief (Kundalahalli/AECS Layout Cross
+    // corridor) and a real from-place-to-Majestic route, so this test fails
+    // if the route selection regresses to "500-series only".
+    expect(numbers.has('335-E')).toBe(true)
+    expect(numbers.has('342-F')).toBe(true)
+    expect(loaded.trips.size).toBeGreaterThan(6_000)
     expect([...loaded.shapes.values()].every((shape) => shape.distanceSource === 'shape_dist_traveled')).toBe(true)
     expect([...loaded.stops.values()].some((stop) => stop.nameLocal !== null)).toBe(true)
   }, 20_000)

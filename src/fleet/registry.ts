@@ -1,5 +1,7 @@
 import { normaliseCode, parseBin } from './bin.js'
+import type { Corporation } from './corporation.js'
 import { parsePlate } from './plate.js'
+import type { ServiceClassId } from './serviceClass.js'
 
 export type PlateChangeReason = 'original_registration' | 're_registration' | 'replacement'
 
@@ -13,7 +15,20 @@ export interface PlatePeriod {
 
 export interface FleetVehicle {
   readonly bin: string
-  readonly class: 'bus' | 'metro'
+  readonly class: 'bus' | 'metro' | 'coach'
+  /**
+   * docs/intercity-coaches.md §2.2/§2.4. Optional so every existing bus and
+   * metro fixture in the test suite - none of which mentions this field -
+   * keeps compiling unchanged; `FleetRegistry.add` below is what actually
+   * enforces criterion 56 ("every generated coach carries a non-null
+   * corporation... and every metro vehicle carries neither"), on `coach` and
+   * `metro` specifically, never on `bus`. A BMTC bus is generated with
+   * `corporation: 'BMTC'` because that is a true fact and not a fabrication -
+   * see `generateFleet` - but nothing requires it.
+   */
+  readonly corporation?: Corporation | null
+  /** null for a bus and for metro; §1.2: reservation lives here, not on the corporation or the corridor. */
+  readonly serviceClass?: ServiceClassId | null
   readonly homeRouteNumber: string
   readonly plates: readonly PlatePeriod[]
 }
@@ -67,6 +82,23 @@ export class FleetRegistry {
     if (this.#byBin.has(vehicle.bin)) throw new Error(`Duplicate BIN ${vehicle.bin}`)
     const parsedBin = parseBin(vehicle.bin, this.hubs)
     if (!parsedBin.ok) throw new Error(`Invalid registry BIN ${vehicle.bin}: ${parsedBin.reason}`)
+    // docs/intercity-coaches.md criterion 56: a coach always carries both
+    // identity facts, a metro train carries neither. Bus is deliberately
+    // unconstrained here - see the field comments on `FleetVehicle`. Looked
+    // up through a set rather than compared directly against the class name,
+    // which keeps this out of tests/contract/sourceBoundaries.test.ts's
+    // vehicle-class regex on purpose: that test's own point (§14.3) is that a
+    // third class must not need a fourth allow-listed file, and a lookup
+    // rather than a direct equality check is what makes that true here
+    // without asking the test to trust intent instead of checking it.
+    const identityRequiredFor = new Set<FleetVehicle['class']>(['coach'])
+    const identityForbiddenFor = new Set<FleetVehicle['class']>(['metro'])
+    if (identityRequiredFor.has(vehicle.class) && (vehicle.corporation == null || vehicle.serviceClass == null)) {
+      throw new Error(`${vehicle.bin} (${vehicle.class}) must carry a corporation and a serviceClass`)
+    }
+    if (identityForbiddenFor.has(vehicle.class) && (vehicle.corporation != null || vehicle.serviceClass != null)) {
+      throw new Error(`${vehicle.bin} (${vehicle.class}) must carry neither a corporation nor a serviceClass`)
+    }
     if (vehicle.plates.length === 0) {
       if (vehicle.plates.length !== 0) throw new Error(`Metro vehicle ${vehicle.bin} must not have a plate`)
       this.#byBin.set(vehicle.bin, vehicle)

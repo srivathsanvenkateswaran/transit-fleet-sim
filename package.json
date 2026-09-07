@@ -9,6 +9,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build-bundle": "tsx scripts/build-bundle.ts",
+    "build-corridors": "tsx scripts/build-corridors.ts",
+    "build-corridor-roster": "tsx scripts/build-corridor-roster.ts",
+    "check-corridor-topology": "tsx scripts/check-corridor-topology.ts",
     "generate-goldens": "tsx scripts/generate-goldens.ts",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint .",

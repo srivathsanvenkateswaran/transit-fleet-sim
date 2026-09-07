@@ -1,9 +1,28 @@
 import { config } from '../config.js'
 import { classifyCode } from '../fleet/classify.js'
+import { CORPORATION_NAMES, fixtureHub } from '../fleet/corporation.js'
 import type { FleetRegistry, FleetVehicle } from '../fleet/registry.js'
+import { serviceClassById } from '../fleet/serviceClass.js'
 import type { WorldPort } from '../world/port.js'
 import { errors, type ApiErrorBody } from './errors.js'
 import { currentPlate, observationFor, projectTracking } from './project.js'
+
+/** §10.1: the full class row, including the `capacitySource` §2.2 insists on. */
+function serviceClassBody(id: string | null | undefined) {
+  if (id == null) return null
+  const serviceClass = serviceClassById(id)
+  if (serviceClass === null) return null
+  return {
+    id: serviceClass.id,
+    name: serviceClass.name,
+    reserved: serviceClass.reserved,
+    ac: serviceClass.ac,
+    layout: serviceClass.layout,
+    berths: serviceClass.berths,
+    capacity: serviceClass.capacity,
+    capacitySource: serviceClass.capacitySource,
+  }
+}
 
 export type ResolveResult =
   | { readonly status: 200; readonly body: Record<string, unknown> }
@@ -69,9 +88,22 @@ export function resolveVehicle(
   const observation = observationFor(world, vehicle, at)
   const plate = currentPlate(registry, vehicle)
   const verify = [{ label: 'Number plate', value: plate.display }]
-  if (observation.duty.route !== null) {
+  // docs/intercity-coaches.md §10.1: "Departure time is on the list and route
+  // number is not, because at a stand at 22:00 the destination board and the
+  // departure time are what a rider checks, and a corridor has no number to
+  // check." A consuming app that renders the array verbatim - which SPEC 6.4
+  // already instructs - needs no release to show this.
+  const corridor = observation.duty.corridor ?? null
+  if (corridor !== null && observation.duty.headsign !== null) {
+    verify.push({ label: 'Destination', value: observation.duty.headsign })
+    const startTime = observation.duty.trip?.startTime
+    if (startTime !== undefined) {
+      verify.push({ label: 'Departure', value: startTime.slice(0, 5) })
+    }
+  } else if (observation.duty.route !== null) {
     verify.push({ label: 'Route', value: observation.duty.route.number })
   }
+  const hub = fixtureHub(vehicle.bin.slice(0, 3))
   return {
     status: 200,
     body: {
@@ -81,16 +113,43 @@ export function resolveVehicle(
         class: vehicle.class,
         plate,
         plateAbsentReason: null,
-        hub: { code: vehicle.bin.slice(0, 3), name: config.busHubName },
+        hub: { code: vehicle.bin.slice(0, 3), name: hub?.division ?? config.busHubName },
+        // §1.1/§2.1: the corporation is carried as provenance, disclosed
+        // plainly because no existing surface does, and never presented as
+        // something a rider can check with their eyes - a KKRTC coach and a
+        // KSRTC coach on the shared brand look the same. `simulated: true` is
+        // the framing that keeps it a fact about this simulation rather than
+        // about Karnataka.
+        //
+        // Both keys are gated on the vehicle carrying a **service class**,
+        // not on its class name: a BMTC bus is generated with
+        // `corporation: 'BMTC'` because that is true, and publishing it would
+        // still be a new field on an existing response (§14.1, criterion
+        // 105). Only a coach carries a service class, so this is the same
+        // "reservation is the correct axis, the class is not" move §7.3 makes
+        // for occupancy, and it keeps this file outside
+        // tests/contract/sourceBoundaries.test.ts's class-comparison regex.
+        ...(vehicle.serviceClass == null || vehicle.corporation == null
+          ? {}
+          : {
+              corporation: {
+                code: vehicle.corporation,
+                name: CORPORATION_NAMES[vehicle.corporation] ?? vehicle.corporation,
+                simulated: true,
+              },
+              serviceClass: serviceClassBody(vehicle.serviceClass),
+            }),
       },
       duty: observation.duty,
       tracking: projectTracking(observation.tracking, at, observation.occupancy),
       confirmation: {
         required: entry === 'manual',
         prompt:
-          observation.duty.route === null
-            ? 'Check the number plate. The route is not currently known.'
-            : 'Check the bus in front of you.',
+          corridor !== null
+            ? 'Check the coach in front of you.'
+            : observation.duty.route === null
+              ? 'Check the number plate. The route is not currently known.'
+              : 'Check the bus in front of you.',
         verify,
       },
       meta: {

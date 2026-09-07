@@ -14,7 +14,6 @@ export interface MetroServiceProfile {
 }
 
 interface LineService {
-  readonly firstTrain: string
   readonly lastTrain: string
   readonly peakHeadwaySeconds: number
   readonly offPeakHeadwaySeconds: number
@@ -24,9 +23,37 @@ interface LineService {
 // Yellow: BMRCL's published line timetable and frequency reporting cited by
 // SPEC [yellow-headway]. Times are terminal departure windows, in Bengaluru.
 export const OPERATIONAL_METRO_SERVICE: Readonly<Record<string, LineService>> = {
-  purple: { firstTrain: '05:00', lastTrain: '23:05', peakHeadwaySeconds: 480, offPeakHeadwaySeconds: 720 },
-  green: { firstTrain: '05:00', lastTrain: '23:05', peakHeadwaySeconds: 480, offPeakHeadwaySeconds: 720 },
-  yellow: { firstTrain: '06:00', lastTrain: '23:55', peakHeadwaySeconds: 540, offPeakHeadwaySeconds: 840 },
+  purple: { lastTrain: '23:05', peakHeadwaySeconds: 480, offPeakHeadwaySeconds: 720 },
+  green: { lastTrain: '23:05', peakHeadwaySeconds: 480, offPeakHeadwaySeconds: 720 },
+  yellow: { lastTrain: '23:55', peakHeadwaySeconds: 540, offPeakHeadwaySeconds: 840 },
+}
+
+/**
+ * The first-train time, and the one part of the operating window that is not
+ * the same every day. All three lines open on the same clock - the owner's
+ * brief gave a single first-train schedule for "the three lines" rather than
+ * one per line, and BMRCL runs all three to the same opening pattern in
+ * practice - so this table is not keyed by line the way `lastTrain` is.
+ *
+ * Monday is genuinely earlier (04:15) than the rest of the working week
+ * (05:00): BMRCL brings services up ahead of the Monday commute peak. Sunday
+ * opens latest (07:00), reflecting the lighter early-Sunday demand. A rider
+ * who queries "tomorrow" on a Sunday night therefore gets a different answer
+ * from one who queries it on any other night, and `nextOpen` below is the
+ * one place that has to get that lookahead right.
+ *
+ * Keyed by the short weekday name `Intl.DateTimeFormat` hands back, which is
+ * also what `weekdayOfDay` below produces, so the two never have to agree on
+ * a 0-indexed convention.
+ */
+const FIRST_TRAIN_BY_WEEKDAY: Readonly<Record<string, string>> = {
+  Mon: '04:15',
+  Tue: '05:00',
+  Wed: '05:00',
+  Thu: '05:00',
+  Fri: '05:00',
+  Sat: '05:00',
+  Sun: '07:00',
 }
 
 interface CandidateArrival {
@@ -66,7 +93,18 @@ export class MetroSimulation {
           error: 'metro_service_closed',
           message: 'Metro service is closed at this time.',
           station: stationRef(station),
-          serviceHours: Object.fromEntries(simulatedLines.map((line) => [line.id, OPERATIONAL_METRO_SERVICE[line.id]])),
+          // `firstTrain` here is today's actual opening time - already
+          // resolved against the day-of-week table below - and not the name
+          // of a rule a client would have to re-implement. `nextOpensAt` is
+          // the answer to the question a rider at 02:00 is actually asking:
+          // not "when does the metro usually open" but "when does it open
+          // next", which on a Sunday night is tomorrow's 04:15 Monday
+          // opening and on any other night is tomorrow's 05:00.
+          serviceHours: Object.fromEntries(simulatedLines.map((line) => [line.id, {
+            firstTrain: firstTrainForDay(localDay(at, this.#profile.timezone)),
+            lastTrain: OPERATIONAL_METRO_SERVICE[line.id]?.lastTrain,
+            nextOpensAt: this.nextOpen(line.id, at).toISOString(),
+          }])),
           arrivals: [],
           meta: this.meta(at),
         },
@@ -111,7 +149,7 @@ export class MetroSimulation {
       const rawIndex = line.stations.findIndex((station) => station.id === query.stationId)
       const stationIndex = direction === 0 ? rawIndex : line.stations.length - 1 - rawIndex
       const travelSeconds = this.travelSecondsTo(line, rawIndex, direction)
-      let departureMs = localInstant(day, service.firstTrain, this.#profile.timezone).getTime()
+      let departureMs = localInstant(day, firstTrainForDay(day), this.#profile.timezone).getTime()
       const lastDepartureMs = localInstant(day, service.lastTrain, this.#profile.timezone).getTime()
       let runNumber = 0
       while (departureMs <= lastDepartureMs) {
@@ -185,8 +223,28 @@ export class MetroSimulation {
   private isWithinService(lineId: string, at: Date): boolean {
     const service = OPERATIONAL_METRO_SERVICE[lineId]
     if (service === undefined) return false
+    const day = localDay(at, this.#profile.timezone)
     const minutes = localMinutes(at, this.#profile.timezone)
-    return minutes >= parseTime(service.firstTrain) && minutes <= parseTime(service.lastTrain)
+    return minutes >= parseTime(firstTrainForDay(day)) && minutes <= parseTime(service.lastTrain)
+  }
+
+  /**
+   * The instant this line next opens, from `at`. Operating windows never
+   * cross midnight (the latest close, Yellow's 23:55, is still well before
+   * the earliest possible next open), so there are exactly two cases: `at`
+   * is a small-hours query before today's first train, in which case today's
+   * opening is still ahead of it, or `at` is after last train, in which case
+   * the next opening is tomorrow's - on whatever schedule tomorrow's weekday
+   * carries, not today's. This is the one place the day-of-week table has to
+   * be consulted twice against two different days in the same call.
+   */
+  private nextOpen(lineId: string, at: Date): Date {
+    const timezone = this.#profile.timezone
+    const day = localDay(at, timezone)
+    const todayOpen = localInstant(day, firstTrainForDay(day), timezone)
+    if (at.getTime() < todayOpen.getTime()) return todayOpen
+    const tomorrow = addDays(day, 1)
+    return localInstant(tomorrow, firstTrainForDay(tomorrow), timezone)
   }
 
   private meta(at: Date) {
@@ -222,6 +280,39 @@ function localDay(at: Date, timezone: string): string {
 function localTime(at: Date, timezone: string): string {
   const parts = localParts(at, timezone)
   return `${parts.hour}:${parts.minute}:${parts.second}`
+}
+
+/**
+ * The short weekday name (`Mon`, `Tue`, ...) for a `YYYY-MM-DD` calendar day,
+ * independent of any wall-clock time or timezone. `day` names a date, not an
+ * instant, and asking what weekday a date falls on has one right answer
+ * everywhere on Earth - so this deliberately anchors to noon UTC rather than
+ * threading `this.#profile.timezone` through, which would risk a date whose
+ * local midnight sits on the far side of the UTC day boundary reading back
+ * as the wrong weekday.
+ */
+function weekdayOfDay(day: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short' }).format(
+    new Date(`${day}T12:00:00.000Z`),
+  )
+}
+
+/** Today's first-train time, per `FIRST_TRAIN_BY_WEEKDAY` above. Falls back
+ *  to the weekday default if a future weekday spelling ever surprises this
+ *  build - Monday's earlier open is the exception, not the safe default, so
+ *  the fallback deliberately is not it. */
+function firstTrainForDay(day: string): string {
+  return FIRST_TRAIN_BY_WEEKDAY[weekdayOfDay(day)] ?? '05:00'
+}
+
+/** `day` plus `n` calendar days, as another `YYYY-MM-DD`. Arithmetic stays in
+ *  UTC throughout because `day` names a date rather than an instant - the
+ *  same reasoning as `weekdayOfDay` above - so there is no timezone for a
+ *  day-count addition to get wrong. */
+function addDays(day: string, n: number): string {
+  const next = new Date(`${day}T00:00:00.000Z`)
+  next.setUTCDate(next.getUTCDate() + n)
+  return next.toISOString().slice(0, 10)
 }
 
 function localInstant(day: string, time: string, timezone: string): Date {

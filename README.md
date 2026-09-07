@@ -117,12 +117,20 @@ GET /healthz
 GET /readyz
 ```
 
-Ordered next, and deliberately not stubbed yet:
-
 ```
 GET /fleet/metro/arrivals?station=...    # which trains are approaching
 GET /gtfs-rt/vehicle-positions           # protobuf
 GET /gtfs-rt/trip-updates                # protobuf
+```
+
+Behind `INTERCITY_CORRIDORS`, which is unset by default:
+
+```
+GET  /fleet/duty?service=2259BNGHMP&date=2026-09-05   # which coach is mine, and where
+GET  /fleet/duty/{dutyId}                             # the same, by this service's own id
+GET  /fleet/corridors                                 # corridors, geometry provenance, departures
+PUT  /fleet/manifest                                  # a booking count, pushed by a ticketing peer
+DELETE /fleet/manifest                                # and cleared
 ```
 
 One resolve endpoint for both entry paths, because a rider does not know which
@@ -200,12 +208,45 @@ set `SIM_CLOCK` to an RFC 3339 instant to freeze every response.
 
 ## Status
 
-**The bus and ticketing increment plus metro topology and an honest arrivals
-refusal are implemented.** It includes the
+**The bus and ticketing increment, metro topology with an honest arrivals
+refusal, and both GTFS-Realtime feeds are implemented.** That includes the
 offline GTFS bundle, geometry, Damm-checked fleet identity, deterministic bus
 movement, independent duty and tracking state machines, resolve and
 single-vehicle JSON endpoints, probes, config and Docker, plus bundled OSM
-metro geometry and `/fleet/metro/arrivals`. GTFS-Realtime remains next.
+metro geometry and `/fleet/metro/arrivals`. The feeds carry buses and coaches;
+**metro trains are not in them**, because the metro simulation models a
+headway table and station arrivals rather than per-train vehicles and no metro
+vehicle carries a BIN.
+
+**Intercity coaches** ([`docs/intercity-coaches.md`](docs/intercity-coaches.md))
+are implemented behind `INTERCITY_CORRIDORS`, unset by default - that
+document's §14.1 explains why, and §14.2 names the line in the consuming app
+that has to widen before it can be switched on. Built:
+
+- the Bengaluru-Hosapete-Hampi corridor's geometry, routed over real roads and
+  committed at `data/bundle/corridor-topology.json`, with its integrity gate
+  (`npm run check-corridor-topology`);
+- the four-corporation identity layer and its registry assertions;
+- the multi-day departure roster, dispatch by departure rather than by spread,
+  a run that completes instead of looping, the `#roster`/`#active` split, and
+  `/readyz`'s four new counts and its new `503`;
+- halts: dwell kinds, the `dwell` object with a band that is never zero, the
+  slower stationary fix interval, and the halt-versus-dropout separation;
+- the intercity device model - coverage 0.92 for reserved services against
+  0.70 for ordinary Karnataka Sarige, `stale` at 180 s and `dark` at 600 s,
+  geographic dead zones between districts, and a recovery that publishes both
+  ends of the gap;
+- the prediction band in remaining highway kilometres and remaining halts, on
+  a six-hour horizon, widened through a dead zone;
+- the manifest ingress: `PUT` and `DELETE /fleet/manifest` gated on
+  `MANIFEST_TOKEN`, the `booked`/`held`/`simulated` split with only `booked`
+  published, and `asOf` as version;
+- the structural refusal to ever emit an occupancy for a reserved duty.
+
+Not built: the other four fixture corridors of §13.1, including `PVG-BNG` and
+its independent check against OSM relation `15728171`; the eight coach goldens
+of §13.4; and `/admin/scenario`, which SPEC's own increment already deferred
+and which §10.6 would extend.
 
 The checked wire output is under [`evidence/`](evidence/), the sixteen complete
 resolve-body goldens are under [`tests/api/goldens/`](tests/api/goldens/), and
