@@ -53,6 +53,7 @@ import {
   demoContinuityBins,
   demoContinuityDutyState,
   isDemoContinuityLeg,
+  loopedDemoContinuityDutyAt,
   pinDemoContinuityChains,
 } from './demoContinuity.js'
 import { isoToCompact, localDayCompact } from './localTime.js'
@@ -161,6 +162,14 @@ export class CoachSimulation implements IntercityPort {
    * topology.json` at all.
    */
   readonly #reverseCorridors = new Map<string, Corridor>()
+  /**
+   * The four demo sticker bins (`demoContinuity.ts`) - checked by
+   * `runForBin` before it falls back to `loopedDemoContinuityDutyAt`, so the
+   * loop/repeat affordance that closes their own chains' unavoidable gaps
+   * never reaches an ordinary coach whose duty simply hasn't started yet or
+   * has genuinely finished for the day.
+   */
+  readonly #continuityBins: ReadonlySet<string>
 
   constructor(options: CoachWorldOptions) {
     this.#profiles = options.profiles
@@ -178,6 +187,7 @@ export class CoachSimulation implements IntercityPort {
     // `pinDemoContinuityChains` below exists to override, and a bin with two
     // simultaneous duties is not a thing `#binToDuties` can represent.
     const pinnedBins = demoContinuityBins()
+    this.#continuityBins = pinnedBins
     const pool = options.fleet
       .filter((member) => member.class === 'coach' && !pinnedBins.has(member.bin))
       .map((member) => ({
@@ -682,8 +692,17 @@ export class CoachSimulation implements IntercityPort {
       (candidate) =>
         candidate.departureAt.getTime() <= ms && candidate.scheduledArrivalAt.getTime() > ms,
     )
-    if (duty === undefined) return null
-    return this.runAt(duty, at)
+    if (duty !== undefined) return this.runAt(duty, at)
+    // Every ordinary coach is genuinely dark between duties - a rider who
+    // scans one at 03:00 in a depot is told the truth, and `null` here is
+    // that truth reaching `observe`/`resolveVehicle` unmodified. The four
+    // demo sticker bins are the one deliberate exception: see
+    // `loopedDemoContinuityDutyAt`'s own doc for why a scan of one of these
+    // must never land on the true, real gap a real timetable leaves.
+    if (!this.#continuityBins.has(bin)) return null
+    const looped = loopedDemoContinuityDutyAt(duties, at)
+    if (looped === null) return null
+    return this.runAt(looped, at)
   }
 
   private runAt(duty: CoachDuty, at: Date): CoachRun {
