@@ -509,6 +509,17 @@ export class CoachSimulation implements IntercityPort {
   corridors(at: Date): IntercityResult {
     const today = localDayCompact(at, this.#profiles.timezone)
     const nowMs = at.getTime()
+    // `activeAt` is a full scan of every duty; the loop below used to run it
+    // once per corridor (O(corridors x duties)) purely to filter the same
+    // result down to one corridor's slice each time. Computing it once and
+    // grouping by corridor here makes each corridor's `running` a map lookup
+    // instead of a re-scan.
+    const activeByCorridor = new Map<string, CoachDuty[]>()
+    for (const duty of activeAt(this.#duties, at)) {
+      const running = activeByCorridor.get(duty.corridorId)
+      if (running === undefined) activeByCorridor.set(duty.corridorId, [duty])
+      else running.push(duty)
+    }
     return {
       status: 200,
       body: {
@@ -533,7 +544,7 @@ export class CoachSimulation implements IntercityPort {
               (duty.serviceDate === today ||
                 (duty.departureAt.getTime() <= nowMs && duty.scheduledArrivalAt.getTime() > nowMs)),
           )
-          const running = activeAt(this.#duties, at).filter((duty) => duty.corridorId === corridor.id)
+          const running = activeByCorridor.get(corridor.id) ?? []
           const tracked = running.filter((duty) => {
             const bin = this.#assignments.get(duty.id)?.bin
             if (bin === undefined) return false

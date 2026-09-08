@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { config } from '../config.js'
 import { loadGtfs, type GtfsStopTime, type LoadedGtfs } from '../geometry/loadGtfs.js'
-import { loadMetroTopology, type MetroTopology } from '../geometry/metroTopology.js'
+import { loadMetroTopology } from '../geometry/metroTopology.js'
 import { positionAt } from '../geometry/shape.js'
 import type {
   CreateWorld,
@@ -40,8 +40,6 @@ import { defaultCoachProfiles } from './coachProfiles.js'
 import { defaultBusOccupancyProfile, occupancyFor, projectOccupancy, type BusOccupancyProfile } from './occupancy.js'
 import { defaultBusMotionProfile, type BusMotionProfile } from './profile.js'
 import { serviceDate } from './serviceDate.js'
-import { MetroSimulation, OPERATIONAL_METRO_SERVICE } from './metro.js'
-import type { MetroArrivalsQuery, MetroArrivalsResult } from '../world/port.js'
 
 /**
  * How the initial fleet is placed onto the road. Defaults to
@@ -69,7 +67,6 @@ export interface SimWorldOptions {
   readonly deviceProfile?: BusDeviceProfile
   readonly dutyProfile?: BusDutyProfile
   readonly occupancyProfile?: BusOccupancyProfile
-  readonly metroTopology?: MetroTopology
   readonly dispatch?: DispatchFleet
   /**
    * docs/intercity-coaches.md §10.7: how many corridors `INTERCITY_CORRIDORS`
@@ -99,7 +96,6 @@ export class SimWorld implements WorldPort {
   readonly #occupancyProfile: BusOccupancyProfile
   readonly #corridorCount: number | null
   readonly #coaches: CoachSimulation | null
-  readonly #metro: MetroSimulation
   readonly #buses = new Map<string, ActiveBus>()
   readonly #devices = new Map<string, DeviceState>()
   readonly #duties = new Map<string, DutyState>()
@@ -132,7 +128,6 @@ export class SimWorld implements WorldPort {
     this.#occupancyProfile = options.occupancyProfile ?? defaultBusOccupancyProfile
     this.#corridorCount = options.corridorCount ?? null
     this.#coaches = options.coaches ?? null
-    this.#metro = new MetroSimulation(options.metroTopology ?? { lines: [], source: 'openstreetmap', fetchedAt: '', overpassEndpoint: '' }, { seed: config.simSeed, timezone: config.simTimezone, peakWindows: [{ startMinutes: 7 * 60, endMinutes: 11 * 60 }, { startMinutes: 17 * 60, endMinutes: 21 * 60 }], predictionHorizonSeconds: 3600, dwellSeconds: 30, uncertaintyBaseSeconds: 30, uncertaintyPerStopSeconds: 8, headwayJitterSeconds: 30 })
     this.#metroLines = options.metroLines ?? 0
     this.#lastTickAt = this.#clock.now()
     this.#simulatedAt = new Date(this.#lastTickAt)
@@ -165,8 +160,6 @@ export class SimWorld implements WorldPort {
       )
     }
   }
-
-  metroArrivals(query: MetroArrivalsQuery, at: Date): MetroArrivalsResult { return this.#metro.arrivals(query, at) }
 
   now(): Date {
     return this.#clock.now()
@@ -516,7 +509,6 @@ export async function createWorld(
   const dispatchable = fleet.filter((member) => member.serviceClass == null)
   return new SimWorld(gtfs, dispatchable, {
     metroLines: metro.lines.length,
-    metroTopology: metro,
     ...(intercity === null ? {} : { corridorCount: config.intercityCorridors.length }),
     ...(coaches === null ? {} : { coaches }),
   })

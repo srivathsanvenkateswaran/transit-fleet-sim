@@ -41,7 +41,7 @@ const PROFILE: BusMotionProfile = {
   dwellSecondsMean: 10,
   dwellSecondsSd: 0,
   peakSpeedFactor: 1,
-  peakWindows: '',
+  peakWindowMinutes: [],
   timezone: 'Asia/Kolkata',
   terminalLayoverSeconds: 20,
 }
