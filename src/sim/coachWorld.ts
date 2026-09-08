@@ -53,8 +53,8 @@ import {
   demoContinuityBins,
   demoContinuityDutyState,
   isDemoContinuityLeg,
-  loopedDemoContinuityDutyAt,
   pinDemoContinuityChains,
+  upcomingDemoContinuityDutyAt,
 } from './demoContinuity.js'
 import { isoToCompact, localDayCompact } from './localTime.js'
 import { ManifestStore, publishManifest, type ManifestProfile } from './manifest.js'
@@ -164,10 +164,10 @@ export class CoachSimulation implements IntercityPort {
   readonly #reverseCorridors = new Map<string, Corridor>()
   /**
    * The four demo sticker bins (`demoContinuity.ts`) - checked by
-   * `runForBin` before it falls back to `loopedDemoContinuityDutyAt`, so the
-   * loop/repeat affordance that closes their own chains' unavoidable gaps
-   * never reaches an ordinary coach whose duty simply hasn't started yet or
-   * has genuinely finished for the day.
+   * `runForBin` before it falls back to `upcomingDemoContinuityDutyAt`, so
+   * the gap-filling affordance that closes their own chains' unavoidable
+   * gaps never reaches an ordinary coach whose duty simply hasn't started
+   * yet or has genuinely finished for the day.
    */
   readonly #continuityBins: ReadonlySet<string>
 
@@ -697,12 +697,14 @@ export class CoachSimulation implements IntercityPort {
     // scans one at 03:00 in a depot is told the truth, and `null` here is
     // that truth reaching `observe`/`resolveVehicle` unmodified. The four
     // demo sticker bins are the one deliberate exception: see
-    // `loopedDemoContinuityDutyAt`'s own doc for why a scan of one of these
-    // must never land on the true, real gap a real timetable leaves.
+    // `upcomingDemoContinuityDutyAt`'s own doc for why a scan of one of
+    // these must never land on the true, real gap a real timetable leaves -
+    // and for why it answers with the chain's NEXT leg, not the one that
+    // just finished.
     if (!this.#continuityBins.has(bin)) return null
-    const looped = loopedDemoContinuityDutyAt(duties, at)
-    if (looped === null) return null
-    return this.runAt(looped, at)
+    const upcoming = upcomingDemoContinuityDutyAt(duties, at)
+    if (upcoming === null) return null
+    return this.runAt(upcoming, at)
   }
 
   private runAt(duty: CoachDuty, at: Date): CoachRun {

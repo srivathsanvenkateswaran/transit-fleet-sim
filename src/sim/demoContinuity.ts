@@ -5,9 +5,10 @@ import type { DutyState } from './duty.js'
  * Four Karnataka Sarige coaches, pinned to a chain of real, already-rostered
  * departures so each one carries a confirmed duty at every hour of every
  * day, including overnight - the chain itself covers as much of the clock as
- * a real, non-invented timetable allows, and `loopedDemoContinuityDutyAt`
+ * a real, non-invented timetable allows, and `upcomingDemoContinuityDutyAt`
  * (below) closes what real headways still leave open, for these four bins
- * only.
+ * only, by naming the chain's own next departure rather than the one that
+ * already left.
  *
  * ## Why this exists
  *
@@ -44,8 +45,9 @@ import type { DutyState } from './duty.js'
  * short as a real, non-invented Karnataka Sarige timetable allows (see also
  * `docs/intercity-coaches.md` for the wider roster). Every chain still
  * leaves at least one such gap - documented on each chain below, next to the
- * real headway that makes it unavoidable - and `loopedDemoContinuityDutyAt`
- * is what a scan during one of those gaps actually gets.
+ * real headway that makes it unavoidable - and `upcomingDemoContinuityDutyAt`
+ * is what a scan during one of those gaps actually gets: the chain's own
+ * next leg, not the one that already pulled out.
  *
  * ## What this does not do
  *
@@ -111,10 +113,11 @@ export const KA_SARIGE_STICKER_CHAINS: readonly DemoContinuityChain[] = [
   // earliest real KBS departure after that arrival - `BNG-BDM` has none
   // between 17:53 and 18:31, so the 18:00 checkpoint falls inside a real,
   // unavoidable 38-minute depot gap (17:53-18:31), down from the 4h38m dark
-  // window this bin carried before. `loopedDemoContinuityDutyAt` is what
-  // closes what's left of it - a scan at 18:00 gets `0600BDMBNG`, standing,
-  // rather than nothing. `1831BNGMNG` alone then carries it to next-day
-  // 02:19, clearing 20:00 and 22:45 comfortably.
+  // window this bin carried before. `upcomingDemoContinuityDutyAt` is what
+  // closes what's left of it - a scan at 18:00 gets `1831BNGMNG` reported as
+  // upcoming, not `0600BDMBNG` standing on the run it already finished.
+  // `1831BNGMNG` then carries it, in progress, to next-day 02:19, clearing
+  // 20:00 and 22:45 comfortably.
   //
   // `2000BNGBDM` (the corridor's own forward leg, KBS 20:00 -> BDM ~07:53
   // the next day) was tried and rejected for the reason the previous pass
@@ -143,8 +146,9 @@ export const KA_SARIGE_STICKER_CHAINS: readonly DemoContinuityChain[] = [
   // file's own 14:00 checkpoint sits one minute inside it. That is the
   // nearest a real timetable gets: not a contrivance, the honest ceiling
   // of what `BNG-MYS`'s own headway offers this bin -
-  // `loopedDemoContinuityDutyAt` covers the remaining minute by holding the
-  // vehicle on `0531MNGBNG`, standing at KBS, until `1401BNGMYS` is due.
+  // `upcomingDemoContinuityDutyAt` covers the remaining minute by reporting
+  // `1401BNGMYS` as the coach's next departure throughout it, rather than
+  // `0531MNGBNG`, the run that already got it to KBS.
   //
   // Next-occurrence check: `2230BNGCKM`'s tail (next-day 04:40) clears the
   // following `0531MNGBNG` (05:31) by 51 minutes.
@@ -168,13 +172,14 @@ export const KA_SARIGE_STICKER_CHAINS: readonly DemoContinuityChain[] = [
   // (`GET /api/route` on it answers `unknown_trip`) - so it is not a real
   // Tatak service number and this chain does not use it, leaving a single
   // 3h11m hole (13:19-16:30) across the 14:00 and 16:00 checks: the widest
-  // gap of the four chains, and the one `loopedDemoContinuityDutyAt` earns
-  // its keep on - a scan anywhere in that window gets `0530MNGBNG`, standing
-  // at KBS, rather than the `unknown_trip` a fabricated number would have
-  // produced instead. `KBS` is also the one hub `BNG-HSP` itself ever
-  // generates a coach against, which is why this leg lands on the `KBS` bin
-  // rather than one of the other three: `BNG-HSP` mints no `MDK`, `MYS` or
-  // `HUB` coach to reassign here in the first place.
+  // gap of the four chains, and the one `upcomingDemoContinuityDutyAt` earns
+  // its keep on - a scan anywhere in that window gets `1630BNGKPL` reported
+  // as upcoming, rather than the `unknown_trip` a fabricated number would
+  // have produced, or `0530MNGBNG`, the run already sitting parked at KBS.
+  // `KBS` is also the one hub `BNG-HSP` itself ever generates a coach
+  // against, which is why this leg lands on the `KBS` bin rather than one of
+  // the other three: `BNG-HSP` mints no `MDK`, `MYS` or `HUB` coach to
+  // reassign here in the first place.
   //
   // Next-occurrence check: `1630BNGKPL`'s own tail (next-day 02:00) clears
   // the following `0530MNGBNG` (05:30) by 3h30m.
@@ -196,8 +201,11 @@ export const KA_SARIGE_STICKER_CHAINS: readonly DemoContinuityChain[] = [
   // stretch through to next-day 05:45 is real, unavoidable dark time on any
   // ordinary coach - the same shape of gap as the other three, just at the
   // far end of the evening instead of the middle of the afternoon, and the
-  // longest of the four. `loopedDemoContinuityDutyAt` holds this bin on
-  // `1432BNGMNG`, standing at Mangaluru, through the whole of it.
+  // longest of the four. `upcomingDemoContinuityDutyAt` reports this bin's
+  // NEXT departure through the whole of it, which by 22:45 is already
+  // tomorrow's `0545BNGVRP` - the chain wrapping to its own first leg is
+  // exactly what makes this the case that proves the wraparound works, not
+  // a special case of it.
   //
   // Next-occurrence check: `1432BNGMNG`'s own arrival (22:20, same day)
   // clears the following `0545BNGVRP` (05:45) by 7h25m.
@@ -255,57 +263,69 @@ export function demoContinuityBins(): ReadonlySet<string> {
 }
 
 /**
- * The loop/repeat affordance itself.
+ * The gap-filling affordance itself, and the rule it enforces is deliberately
+ * the opposite of "show whatever last happened":
  *
- * `KA_SARIGE_STICKER_CHAINS`'s own per-chain comments are honest about what
- * they found: even after choosing every leg to hug the next one as closely
- * as a real, non-invented Karnataka Sarige departure allows, a standing gap
- * is left on all four chains - a 38-minute layover at KBS, a 41-minute one
- * at KBS again, a 3h11m hole nothing in the roster fills, and a 7h25m
- * overnight span with no departure back toward the coach's next stand before
- * morning. None of those gaps is a bug in the chain-building; they are the
- * real timetable's own headways, and the file-header doc is explicit that
- * inventing a service number to paper over one is worse than the gap it
- * would hide.
+ *   - inside a leg's own [departure, arrival) window: that leg, unaffected -
+ *     this function is never even asked.
+ *   - between two legs, at or after the earlier one's arrival: the chain's
+ *     NEXT leg, reported as upcoming - not the one that just finished.
+ *   - before the chain's first departure of a given day: also the next leg,
+ *     which the ascending scan below reaches the same way.
  *
- * A demo sticker cannot carry that honesty, though - a judge scans a fixed
- * vehicle and the app either answers or it doesn't, on any of the 12
- * September vehicle-scanning attempts, not just the ones that land inside a
- * leg's own [departure, arrival) window. So for these four bins **only**,
- * this function is the deliberate demo affordance the task brief asks for:
- * once a chain's leg has genuinely arrived and the chain's own next leg is
- * not yet due, the vehicle stays on the confirmed duty it just finished
- * rather than going dark - the coach did not move again, and this does not
- * pretend it did (the cursor is already idempotent once arrived, so
- * `CoachSimulation` renders it standing at the terminal stand it actually
- * reached), but the sticker keeps answering with that duty's real corridor,
- * real headsign and real service number until the next real departure is
- * due, exactly the way a depot clerk would tell a rider standing at the
- * stand "that's today's coach, its next working is at such-and-such."
+ * ## Why "next", not "last" - the defect this replaced
+ *
+ * An earlier version of this function returned the most recently departed
+ * leg, on the reasoning that a coach standing at a stand between two real
+ * departures is still "on" the one it just ran. That is wrong for a rider:
+ * someone standing at Mangaluru at 12:30 waiting to board the 14:00 KBS
+ * working scans the sticker and needs `1401BNGMYS`, the trip they are about
+ * to ride - not `0531MNGBNG`, the trip that already got the coach there and
+ * would sell them the wrong corridor, the wrong headsign and the wrong fare,
+ * silently, because `WalkUpRefusal` (Tatak's `src/intercity/walkup.ts`) has
+ * no arm for "that working is over." A depot clerk asked what a parked coach
+ * is doing next does not describe the run it just came in on; this function
+ * now gives the same answer a clerk would.
+ *
+ * `KA_SARIGE_STICKER_CHAINS`'s own per-chain comments are honest about why
+ * this is ever reached at all: even after choosing every leg to hug the next
+ * one as closely as a real, non-invented Karnataka Sarige departure allows,
+ * a standing gap is left on all four chains - a 38-minute layover at KBS, a
+ * 41-minute one at KBS again, a 3h11m hole nothing in the roster fills, and
+ * a 7h25m overnight span with no departure back toward the coach's next
+ * stand before morning. None of those gaps is a bug in the chain-building;
+ * they are the real timetable's own headways, and the file-header doc is
+ * explicit that inventing a service number to paper over one is worse than
+ * the gap it would hide - this function still never invents one, it only
+ * decides which of the chain's own real legs to name.
  *
  * This is never consulted for the other 165 coaches or 644 buses - only
  * `CoachSimulation.runForBin` calls it, and only after checking the bin
- * against `demoContinuityBins()` first.
+ * against `demoContinuityBins()` first. Generalising it to every coach was
+ * considered and set aside: an ordinary coach reporting nothing between
+ * duties is not a gap this simulation is trying to close, it is §10.3's own
+ * honest "the world has nothing to say about this vehicle" - the state
+ * criterion 95 (`tests/api/intercityApi.test.ts`) tests for by name, and
+ * that `resolveVehicle`'s confirmation screen already renders on its own
+ * terms. Naming a next duty for a coach that may not run one for days would
+ * erase that state fleet-wide rather than fix the four stickers this file
+ * exists for.
  */
-export function loopedDemoContinuityDutyAt(
+export function upcomingDemoContinuityDutyAt(
   duties: readonly CoachDuty[],
   at: Date,
 ): CoachDuty | null {
   const ms = at.getTime()
   // `duties` is this bin's own slice of `CoachSimulation`'s globally
-  // departure-sorted duty list (`#binToDuties`), so the last entry whose
-  // departure has already happened is exactly the leg the coach is either
-  // still running or has most recently finished - there is nothing here to
-  // sort. `pinDemoContinuityChains`'s own per-chain "next-occurrence check"
-  // comments are what guarantee that leg's own arrival never lands after the
-  // chain's next leg has already pulled out, so this never has to choose
-  // between two candidates that both claim the same instant.
-  let candidate: CoachDuty | null = null
-  for (const duty of duties) {
-    if (duty.departureAt.getTime() > ms) break
-    candidate = duty
-  }
-  return candidate
+  // departure-sorted duty list (`#binToDuties`), so the first entry whose
+  // departure has not yet happened is exactly the chain's next leg - the
+  // caller has already checked no leg's own [departure, arrival) window
+  // contains `at`, so there is nothing to skip past. When `at` is ahead of
+  // every duty this bin's own slice of the roster window carries (the
+  // window's own trailing edge, never reached by an ordinary sweep of
+  // "today"), there is genuinely no next leg to name and this answers `null`
+  // rather than inventing one.
+  return duties.find((duty) => duty.departureAt.getTime() > ms) ?? null
 }
 
 const DEMO_CONTINUITY_LEG_KEYS: ReadonlySet<string> = new Set(
